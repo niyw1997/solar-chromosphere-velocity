@@ -1,0 +1,19 @@
+include LICENSE
+include README.md
+include requirements.txt
+include pyproject.toml
+include setup.cfg
+include setup.py
+
+include src/solar_chromosphere_velocity/data/*.json
+include src/solar_chromosphere_velocity/data/*.txt
+
+recursive-include examples *.py *.ipynb *.md
+recursive-include tests *.py
+recursive-include scripts *.py
+
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude *~
+global-exclude .*
+global-exclude *.so
