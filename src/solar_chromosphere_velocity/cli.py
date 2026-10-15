@@ -91,9 +91,16 @@ def build_parser(prog: str = "scv", legacy_default: bool = False):
                       help="reserved; v2 is fast enough single-process")
 
     out = p.add_argument_group("plots / logging")
-    out.add_argument("--visualize", "-v", action="store_true")
+    out.add_argument("--visualize", "-v", action="store_true",
+                     help="write multi-panel figures next to the FITS product")
     out.add_argument("--plot-dpi", type=int, default=150)
     out.add_argument("--plot-format", default="png")
+    out.add_argument("--plot-panels", nargs="*", default=None,
+                     help="layers to draw, in order (default: all present)")
+    out.add_argument("--plot-per-component", action="store_true",
+                     help="additionally write one figure per component")
+    out.add_argument("--plot-overlay-mask", action="store_true",
+                     help="contour the active regions onto the velocity panels")
     out.add_argument("--log-level", default="INFO",
                      choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
     out.add_argument("--log-file")
@@ -168,6 +175,9 @@ def config_from_args(args) -> Config:
         visualize=args.visualize,
         plot_dpi=args.plot_dpi,
         plot_format=args.plot_format,
+        plot_panels=tuple(args.plot_panels) if args.plot_panels else None,
+        plot_per_component=args.plot_per_component,
+        plot_overlay_mask=args.plot_overlay_mask,
         compress_output=args.compress,
         flat_output=args.flat,
         overwrite=args.overwrite,

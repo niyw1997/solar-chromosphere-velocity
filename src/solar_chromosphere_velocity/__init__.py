@@ -53,6 +53,16 @@ from .masks import (
     effective_disk_mask,
     effective_radius_px,
 )
+from .plotting import (
+    COMPONENT_PANELS,
+    PANEL_ORDER,
+    PANEL_TITLES,
+    plot_components,
+    plot_from_file,
+    plot_layers,
+    plot_summary,
+    write_component_figures,
+)
 from .output import (
     LAYERS,
     OutputLayout,
@@ -100,4 +110,12 @@ __all__ = [
     "observation_key",
     "write_multihdu",
     "ChromosphereProcessor",
+    "PANEL_ORDER",
+    "PANEL_TITLES",
+    "COMPONENT_PANELS",
+    "plot_layers",
+    "plot_from_file",
+    "plot_components",
+    "plot_summary",
+    "write_component_figures",
 ]

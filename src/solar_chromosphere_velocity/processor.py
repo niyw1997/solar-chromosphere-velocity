@@ -50,6 +50,7 @@ class ProcessResult:
     mask_stats: Dict[str, Any] = field(default_factory=dict)
     binding_mask: str = ""
     timings: Dict[str, float] = field(default_factory=dict)
+    figures: Dict[str, str] = field(default_factory=dict)
     status: str = "ok"
     message: str = ""
     n_fit_points: int = 0
@@ -259,6 +260,11 @@ class ChromosphereProcessor:
                        overwrite=True)
         res.outfile = out_path
         timings["write"] = time.perf_counter() - t0
+
+        if cfg.visualize:
+            t0 = time.perf_counter()
+            res.figures = self._make_figures(out_path, layers, cfg)
+            timings["plots"] = time.perf_counter() - t0
         timings["total"] = time.perf_counter() - t_start
         res.timings = timings
         self._index_row(res, key, fit, cfg)
@@ -266,6 +272,38 @@ class ChromosphereProcessor:
                     res.srcfile, os.path.basename(out_path),
                     timings["total"], n_fit, fit.rms_km_s)
         return res
+
+    def _make_figures(self, out_path: str, layers: Dict[str, np.ndarray],
+                      cfg) -> Dict[str, str]:
+        """Write the multi-panel figures.  Never fatal: the FITS product is
+        already on disk, so a plotting problem must not fail the run."""
+        from .plotting import COMPONENT_PANELS, plot_layers, plot_summary, \
+            write_component_figures
+        base = os.path.splitext(out_path)[0]
+        fmt = cfg.plot_format
+        figs: Dict[str, str] = {}
+        common = dict(dpi=cfg.plot_dpi, cmap=cfg.colormap,
+                      overlay_mask=cfg.plot_overlay_mask)
+        try:
+            figs["layers"] = plot_layers(
+                layers, "%s_layers.%s" % (base, fmt),
+                panels=cfg.plot_panels, **common)
+            figs["components"] = plot_layers(
+                layers, "%s_components.%s" % (base, fmt),
+                panels=COMPONENT_PANELS, **common)
+            figs["summary"] = plot_summary(
+                layers, "%s_summary.%s" % (base, fmt), dpi=cfg.plot_dpi)
+            if cfg.plot_per_component:
+                figs.update(write_component_figures(
+                    layers, "%s_component" % base, dpi=cfg.plot_dpi,
+                    cmap=cfg.colormap))
+            logger.info("wrote %d figure(s): %s", len(figs),
+                        ", ".join(os.path.basename(v) for v in figs.values()))
+        except Exception as exc:                       # pragma: no cover
+            logger.warning("plotting failed (%s: %s); the FITS product is "
+                           "unaffected", type(exc).__name__, exc)
+            figs["error"] = "%s: %s" % (type(exc).__name__, exc)
+        return figs
 
     # ------------------------------------------------------------------ #
     def _base_cards(self, key, params, dtype, off, binding, r_edge, r_disk,
@@ -295,6 +333,10 @@ class ChromosphereProcessor:
             "VERSION": _version(),
             "PROCDATE": time.strftime("%Y-%m-%dT%H:%M:%S"),
         }
+        if params.cdelt1:
+            cards["CDELT1"] = (float(params.cdelt1), "arcsec per pixel (x)")
+        if params.cdelt2:
+            cards["CDELT2"] = (float(params.cdelt2), "arcsec per pixel (y)")
         if params.cdelt3:
             cards["CDELT3"] = (float(params.cdelt3), "Angstrom per spectral pixel")
         if params.wave_len:

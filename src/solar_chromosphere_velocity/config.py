@@ -81,6 +81,9 @@ class Config:
     plot_dpi: int = 150
     plot_format: str = "png"
     colormap: str = "bwr"
+    plot_per_component: bool = False       # also write one figure per component
+    plot_panels: Optional[Tuple[str, ...]] = None   # None -> all present layers
+    plot_overlay_mask: bool = False        # contour the active regions
     log_level: str = "INFO"
     log_file: Optional[str] = None
 

@@ -353,3 +353,93 @@ def test_v1_dead_options_are_reported(caplog):
     with caplog.at_level("WARNING"):
         _report_ignored(args)
     assert "doppler_method" in caplog.text
+
+
+# ------------------------------------------------------------------ plotting
+def _fake_layers(n=64, ny=48):
+    rng = np.random.default_rng(3)
+    return {
+        "VLOS_OBS": rng.normal(0, 1.0, (ny, n)).astype(np.float32),
+        "VLOS_CORR": rng.normal(0, 1.0, (ny, n)).astype(np.float32),
+        "V_DIFFROT": (np.linspace(-2, 2, n)[None, :] * np.ones((ny, 1))).astype(np.float32),
+        "V_LIMB": np.zeros((ny, n), dtype=np.float32),
+        "V_MERID": rng.normal(0, 0.05, (ny, n)).astype(np.float32),
+        "V_OFFSET": np.full((ny, n), -0.8394, dtype=np.float32),
+        "V_LARGE": rng.normal(0, 1.0, (ny, n)).astype(np.float32),
+        "V_RESID": rng.normal(0, 0.9, (ny, n)).astype(np.float32),
+        "V_MODEL_ERR": np.abs(rng.normal(0, 0.01, (ny, n))).astype(np.float32),
+        "MASK_ACTIVE": (rng.random((ny, n)) > 0.99).astype(np.uint8),
+    }
+
+
+def test_plot_layers_multi_panel(tmp_path):
+    """Several components in one figure, as separate subplots."""
+    pytest.importorskip("matplotlib")
+    from solar_chromosphere_velocity import plot_layers
+    from solar_chromosphere_velocity.plotting import COMPONENT_PANELS
+    out = plot_layers(_fake_layers(), str(tmp_path / "c.png"),
+                      panels=COMPONENT_PANELS, ncols=3)
+    assert os.path.exists(out)
+    assert os.path.getsize(out) > 5000
+
+
+def test_plot_layers_default_panels_and_subset(tmp_path):
+    pytest.importorskip("matplotlib")
+    from solar_chromosphere_velocity import plot_layers
+    layers = _fake_layers()
+    full = plot_layers(layers, str(tmp_path / "all.png"))
+    assert os.path.exists(full) and os.path.getsize(full) > 5000
+    one = plot_layers(layers, str(tmp_path / "one.png"),
+                      panels=["V_MERID"], ncols=1)
+    assert os.path.exists(one)
+
+
+def test_plot_rejects_unknown_panels(tmp_path):
+    pytest.importorskip("matplotlib")
+    from solar_chromosphere_velocity import plot_layers
+    with pytest.raises(ValueError):
+        plot_layers(_fake_layers(), str(tmp_path / "x.png"), panels=["NOT_A_LAYER"])
+
+
+def test_plot_per_component_and_summary(tmp_path):
+    pytest.importorskip("matplotlib")
+    from solar_chromosphere_velocity import plot_summary, write_component_figures
+    from solar_chromosphere_velocity.plotting import COMPONENT_PANELS
+    layers = _fake_layers()
+    figs = write_component_figures(layers, str(tmp_path / "comp"))
+    assert set(figs) == set(COMPONENT_PANELS)
+    for path in figs.values():
+        assert os.path.exists(path) and os.path.getsize(path) > 3000
+    s = plot_summary(layers, str(tmp_path / "summary.png"))
+    assert os.path.exists(s) and os.path.getsize(s) > 5000
+
+
+def test_plot_from_file_roundtrip(tmp_path):
+    """The figure can be produced from the written multi-HDU product."""
+    pytest.importorskip("matplotlib")
+    from solar_chromosphere_velocity import plot_from_file
+    from solar_chromosphere_velocity.output import write_multihdu
+    from astropy.io import fits
+    layers = _fake_layers()
+    hdr = fits.Header()
+    hdr["OBSTIME"] = "20260424T000000"
+    hdr["SRCFILE"] = "fake.fits"
+    path = str(tmp_path / "x_scv.fits")
+    write_multihdu(path, layers, hdr, None, {"CDELT1": 1.04, "CX": 32.0, "CY": 24.0})
+    out = plot_from_file(path, str(tmp_path / "fromfile.png"),
+                         panels=["V_DIFFROT", "V_RESID"])
+    assert os.path.exists(out) and os.path.getsize(out) > 3000
+
+
+@requires_vdop
+def test_pipeline_writes_figures(tmp_path):
+    """--visualize must emit the multi-panel figures next to the FITS."""
+    pytest.importorskip("matplotlib")
+    cfg = Config(input_dir=os.path.dirname(VDOP), output_dir=str(tmp_path),
+                 visualize=True, plot_dpi=60, log_level="ERROR")
+    res = ChromosphereProcessor(cfg).process_file(VDOP)
+    assert {"layers", "components", "summary"} <= set(res.figures), res.figures
+    for key in ("layers", "components", "summary"):
+        assert os.path.exists(res.figures[key]), key
+        assert os.path.getsize(res.figures[key]) > 3000
+    assert res.figures["layers"].startswith(os.path.splitext(res.outfile)[0])
