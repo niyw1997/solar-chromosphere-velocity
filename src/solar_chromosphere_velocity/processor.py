@@ -99,7 +99,8 @@ class ChromosphereProcessor:
             cube.close()
             return res.velocity, header, params, dtype, res
         if dtype is DataType.DOPPLER_VDOP:
-            data, header = open_plane(path)
+            data, header = open_plane(
+                path, require_unit=self.config.require_velocity_unit)
             params = extract_solar_params(header).require_geometry()
             data = apply_disk_exclusion(data, params,
                                         self.config.disk_exclusion_radius)
@@ -329,6 +330,12 @@ class ChromosphereProcessor:
             "MODELVER": (self.config.model_version, "model formula version"),
             "LEGACY": (bool(self.config.legacy), "v1 compatibility mode"),
             "ROWBLK": (int(self.config.row_block), "streaming row-block size"),
+            "UNITSYS": ("LOS km/s, +receding",
+                        "sign convention of every velocity layer"),
+            "INVMETH": ("xcorr_fft_batched" if dtype in (DataType.SPECTRAL_HA,
+                                                         DataType.SPECTRAL_FE)
+                        else "external_product",
+                        "how VLOS_OBS was obtained"),
             "SOFTWARE": "solar-chromosphere-velocity",
             "VERSION": _version(),
             "PROCDATE": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -394,9 +401,37 @@ class ChromosphereProcessor:
                 r = ProcessResult(srcfile=os.path.basename(f), status="FAILED",
                                   message="%s: %s" % (type(exc).__name__, exc))
                 out.append(r)
+                try:            # index.csv must be an inventory, failures included
+                    k = observation_key_from_file(f)
+                    self._index_row(r, k, None, cfg)
+                except Exception:
+                    logger.debug("could not record the failure in index.csv")
         if failures:
             logger.error("%d of %d file(s) failed", failures, len(files))
         return out
+
+
+def observation_key_from_file(path):
+    """Best-effort observation key for a file that failed before loading.
+
+    Must never raise: index.csv is an inventory, so even a completely
+    unreadable file gets a row (keyed on the file name, then its mtime).
+    """
+    from astropy.io import fits as _fits
+    from .data_loader import open_plane as _op
+    header = _fits.Header()
+    for getter in (lambda: _op(path, require_unit=False)[1],
+                   lambda: _fits.open(path, ignore_missing_end=True,
+                                      verify="silentfix")[0].header):
+        try:
+            header = getter()
+            break
+        except Exception:
+            continue
+    try:
+        return observation_key(header, path)
+    except Exception:
+        return observation_key(_fits.Header(), path)
 
 
 def fits_header(header):

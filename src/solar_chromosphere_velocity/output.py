@@ -277,6 +277,36 @@ def _copy_header_safely(dst: fits.Header, src: fits.Header):
                 _safe_put(dst, key, value)
 
 
+#: keywords that may legitimately repeat
+_REPEATABLE = {"COMMENT", "HISTORY", "", "END"}
+
+
+def _dedupe(header: fits.Header):
+    """Keep only the LAST card for each keyword.
+
+    The input header and our own cards overlap (B0, INST_ROT, CDELT*, CRPIX*,
+    RSUN_OBS, ...); appending both left 38 duplicated keywords, one of them
+    conflicting (INST_ROT = 0 vs 0.0).  Our value is written last, so keeping
+    the last occurrence makes the file unambiguous.
+    """
+    seen = {}
+    for i, card in enumerate(header.cards):
+        key = card.keyword
+        if key in _REPEATABLE:
+            continue
+        seen.setdefault(key, []).append(i)
+    doomed = []
+    for idxs in seen.values():
+        doomed.extend(idxs[:-1])          # drop all but the last occurrence
+    # delete from the highest index down: deleting in keyword order would shift
+    # the indices of every later keyword and remove the wrong cards
+    for i in sorted(doomed, reverse=True):
+        try:
+            del header[i]
+        except Exception:
+            pass
+
+
 def _sanitize_header(header: fits.Header):
     """Ensure no card image exceeds 80 characters.
 
@@ -361,8 +391,6 @@ def write_multihdu(path: str, layers: Dict[str, np.ndarray],
     _copy_header_safely(ph, primary_header)
     for k, v in base_cards.items():
         _safe_put(ph, k, v)
-    for k, v in base_cards.items():
-        _safe_put(ph, k, v)
     if fit is not None:
         for k, v in fit.header_cards().items():
             if k == "NSCAN":
@@ -392,7 +420,11 @@ def write_multihdu(path: str, layers: Dict[str, np.ndarray],
         names = list(fit.as_dict().keys())
         vals = np.array([fit.as_dict()[k] for k in names])
         errs = np.array([fit.error_dict()[k] for k in names])
-        units = [MODEL_TERMS[k][2] for k in names]
+        rot_unit = ("rad/s" if getattr(fit, "rotation_amplitude", "kms")
+                    == "rad_per_s" else "km/s")
+        units = [(rot_unit if k in ("A", "B", "C", "D") else MODEL_TERMS[k][2])
+                 for k in names]
+        flags = [(getattr(fit, "flags", None) or {}).get(k, "") for k in names]
         forms = [MODEL_TERMS[k][1] for k in names]
         comp = [_COMPONENT_OF.get(k, "-") for k in names]
         cols = [
@@ -408,6 +440,8 @@ def write_multihdu(path: str, layers: Dict[str, np.ndarray],
             fits.Column(name="DESCRIPTION", format="60A",
                         array=np.array([MODEL_TERMS[k][0] for k in names],
                                        dtype="U60")),
+            fits.Column(name="FLAG", format="24A",
+                        array=np.array(flags, dtype="U24")),
         ]
         th = fits.Header()
         th["EXTNAME"] = "FITPARAMS"
@@ -419,11 +453,25 @@ def write_multihdu(path: str, layers: Dict[str, np.ndarray],
         th["NLIMB"] = float(fit.n_limb)
         th["MODELVER"] = fit.model_version
         th["ROTSCALE"] = fit.rotation_amplitude
+        th["UNITSCL"] = (rot_unit, "unit of A,B,C,D in FITPARAMS")
+        if getattr(fit, "flags", None):
+            th["FITFLAG"] = ",".join("%s:%s" % kv for kv in sorted(fit.flags.items()))
         if fit.limb_nonneg_active:
             th["LIMBZERO"] = (True, "e pinned to 0 (negative at the optimum)")
         if fit.n_limb_scan:
             # keep the RSS-vs-N profile short enough for a single card
-            th["NSCAN"] = ",".join("%g:%.4g" % (n, r) for n, r in fit.n_limb_scan)[:50]
+            # write every scan point without cutting a number in half
+            tokens = ["%g:%.4g" % (n, r) for n, r in fit.n_limb_scan]
+            chunks, cur = [], ""
+            for tok in tokens:
+                if cur and len(cur) + 1 + len(tok) > 52:
+                    chunks.append(cur); cur = tok
+                else:
+                    cur = tok if not cur else cur + "," + tok
+            if cur:
+                chunks.append(cur)
+            for j, chunk in enumerate(chunks or [""]):
+                th["NSCAN" if j == 0 else "NSCAN%d" % (j + 1)] = chunk
         for k, v in base_cards.items():
             _safe_put(th, k, v)
         hdus.append(fits.BinTableHDU.from_columns(cols, header=th, name="FITPARAMS"))
@@ -433,6 +481,7 @@ def write_multihdu(path: str, layers: Dict[str, np.ndarray],
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     for hdu in hdus:                       # guarantee 80-char cards
         _sanitize_header(hdu.header)
+        _dedupe(hdu.header)
     # CHASE level-1 headers contain cards longer than the 80-character FITS
     # limit (which is why v1 opened them with fix=True).  astropy reports a
     # VerifyWarning while the HDUs are being assembled; every card that we
