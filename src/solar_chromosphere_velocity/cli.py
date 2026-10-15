@@ -73,6 +73,8 @@ def build_parser(prog: str = "scv", legacy_default: bool = False):
     inv.add_argument("--window-half", type=int, default=10)
     inv.add_argument("--profile-radius", type=float, default=100.0,
                      help="radius of the disk-centre averaging mask (pixels)")
+    inv.add_argument("--no-unit-check", action="store_true",
+                     help="accept 2-D inputs whose BUNIT is not a velocity")
     inv.add_argument("--raw-correlation", action="store_true",
                      help="do not mean-subtract the correlation windows")
 
@@ -164,6 +166,7 @@ def config_from_args(args) -> Config:
         zero_point_km_s=args.zero_point,
         window_half=args.window_half,
         profile_mask_radius=args.profile_radius,
+        require_velocity_unit=not args.no_unit_check,
         demean_window=False if args.raw_correlation else None,
         disk_exclusion_radius=args.disk_exclusion,
         edge_exclusion_angle=args.edge_angle,

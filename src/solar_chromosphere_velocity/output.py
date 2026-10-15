@@ -263,6 +263,8 @@ def _copy_header_safely(dst: fits.Header, src: fits.Header):
         key = card.keyword
         if not key or key in _STRUCTURAL:
             continue
+        if key.startswith("NSCAN"):
+            continue          # ours; a stale one from the input must not survive
         try:
             value = card.value
             comment = card.comment
@@ -454,6 +456,9 @@ def write_multihdu(path: str, layers: Dict[str, np.ndarray],
         th["MODELVER"] = fit.model_version
         th["ROTSCALE"] = fit.rotation_amplitude
         th["UNITSCL"] = (rot_unit, "unit of A,B,C,D in FITPARAMS")
+        if np.isfinite(getattr(fit, "n_limb_scan_step", float("nan"))):
+            th["NSTEP"] = (float(fit.n_limb_scan_step),
+                           "half-step of the N scan grid (not an error)")
         if getattr(fit, "flags", None):
             th["FITFLAG"] = ",".join("%s:%s" % kv for kv in sorted(fit.flags.items()))
         if fit.limb_nonneg_active:
@@ -471,7 +476,10 @@ def write_multihdu(path: str, layers: Dict[str, np.ndarray],
             if cur:
                 chunks.append(cur)
             for j, chunk in enumerate(chunks or [""]):
-                th["NSCAN" if j == 0 else "NSCAN%d" % (j + 1)] = chunk
+                # zero-padded so a consumer that sorts keywords lexically still
+                # reads them in order (NSCAN, NSCAN02, ... NSCAN10)
+                key = "NSCAN" if j == 0 else "NSCAN%02d" % (j + 1)
+                th[key] = chunk
         for k, v in base_cards.items():
             _safe_put(th, k, v)
         hdus.append(fits.BinTableHDU.from_columns(cols, header=th, name="FITPARAMS"))
