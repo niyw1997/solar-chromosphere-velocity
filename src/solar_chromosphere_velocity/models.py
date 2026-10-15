@@ -393,11 +393,19 @@ def fit_model_streaming(blocks: Iterable[Tuple[Dict[str, np.ndarray], np.ndarray
         flags["e"] = "PINNED_AT_ZERO"
         if "N" not in flags:
             flags["N"] = "DEGENERATE_WITH_E"  # limb term is identically zero
+    if "N" not in flags:
+        # N is chosen from a discrete scan and is never a design column, so its
+        # covariance-derived error is structurally 0.0 - which reads as a
+        # perfectly measured value.  Report it as unestimated instead.
+        flags["N"] = "SCAN_GRID"
     for name in flags:
         i = TERM_ORDER.index(name)
+        # only the *reported* 1-sigma becomes NaN.  The covariance matrix is
+        # left alone: for a dropped column it is already zero in that row/column
+        # (from solve_drop), which is exactly the right contribution to
+        # sqrt(x^T Sigma x).  Blanking it made V_MODEL_ERR 100% NaN - a real
+        # regression, caught by review.
         errors9[i] = np.nan
-        cov9[i, :] = np.nan
-        cov9[:, i] = np.nan
 
     return ModelFit(params=params9, errors=errors9, cov=cov9, n_limb=n_best,
                     rss=float(rss_best), n_points=int(n_points),

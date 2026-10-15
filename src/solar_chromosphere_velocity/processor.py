@@ -35,7 +35,15 @@ from .output import LAYERS, OutputLayout, observation_key, write_multihdu
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["ChromosphereProcessor", "ProcessResult"]
+__all__ = ["ChromosphereProcessor", "ProcessResult", "ProcessingError"]
+
+
+class ProcessingError(RuntimeError):
+    """Raised by :meth:`process_file`; carries the partially built result."""
+
+    def __init__(self, message, result=None):
+        super().__init__(message)
+        self.result = result
 
 
 @dataclass
@@ -51,6 +59,7 @@ class ProcessResult:
     binding_mask: str = ""
     timings: Dict[str, float] = field(default_factory=dict)
     figures: Dict[str, str] = field(default_factory=dict)
+    indexed: bool = False                  # already recorded in index.csv
     status: str = "ok"
     message: str = ""
     n_fit_points: int = 0
@@ -197,7 +206,7 @@ class ChromosphereProcessor:
                            % (n_fit, self.min_fit_points))
             logger.error("%s: %s", res.srcfile, res.message)
             self._index_row(res, key, None, cfg)
-            raise RuntimeError(res.message)
+            raise ProcessingError(res.message, result=res)
 
         # linear fit (streamed normal equations, profile scan over N)
         t0 = time.perf_counter()
@@ -367,6 +376,7 @@ class ChromosphereProcessor:
             row["rms_km_s"] = fit.rms_km_s
             row["n_limb"] = fit.n_limb
         self.layout.append_index(row)
+        res.indexed = True
 
     # ------------------------------------------------------------------ #
     def process_directory(self, pattern: Optional[str] = None) -> List[ProcessResult]:
@@ -398,14 +408,22 @@ class ChromosphereProcessor:
                 failures += 1
                 logger.error("FAILED %s: %s: %s", os.path.basename(f),
                              type(exc).__name__, exc)
-                r = ProcessResult(srcfile=os.path.basename(f), status="FAILED",
-                                  message="%s: %s" % (type(exc).__name__, exc))
+                # keep the partially built result (it carries the real status
+                # and may already be in index.csv) instead of inventing FAILED
+                r = getattr(exc, "result", None)
+                if r is None:
+                    r = ProcessResult(srcfile=os.path.basename(f),
+                                      status="FAILED",
+                                      message="%s: %s" % (type(exc).__name__, exc))
                 out.append(r)
-                try:            # index.csv must be an inventory, failures included
-                    k = observation_key_from_file(f)
-                    self._index_row(r, k, None, cfg)
-                except Exception:
-                    logger.debug("could not record the failure in index.csv")
+                if not r.indexed:
+                    # index.csv must be an inventory, failures included - but
+                    # exactly once per input
+                    try:
+                        k = observation_key_from_file(f)
+                        self._index_row(r, k, None, cfg)
+                    except Exception:
+                        logger.debug("could not record the failure in index.csv")
         if failures:
             logger.error("%d of %d file(s) failed", failures, len(files))
         return out

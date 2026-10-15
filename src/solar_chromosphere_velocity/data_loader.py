@@ -88,7 +88,10 @@ def detect_data_type(filepath: str) -> DataType:
                     shp = getattr(hdu, "shape", None)
                     if shp is None or len(shp) != 2:
                         continue
-                    if "m/s" in str(hdu.header.get("BUNIT", "")).lower():
+                    # use the SAME recogniser as open_plane, otherwise a
+                    # legitimate 'km s-1' product is rejected here before the
+                    # require_velocity_unit opt-out can ever apply
+                    if velocity_unit_factor(hdu.header.get("BUNIT", "")) is not None:
                         return DataType.DOPPLER_VDOP
     except Exception:
         pass

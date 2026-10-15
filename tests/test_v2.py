@@ -565,3 +565,95 @@ def test_index_is_a_complete_inventory(tmp_path):
     lines = [l for l in idx.read_text().strip().splitlines() if l]
     assert len(lines) - 1 == len(results) == 2, (lines, [r.status for r in results])
     assert any("FAILED" in l for l in lines)
+
+
+# ------------------------------------- regressions found by the SECOND review
+@requires_vdop
+def test_v_model_err_not_destroyed_when_e_is_pinned(legacy_run):
+    """Poisoning the covariance with NaN blanked this whole layer. It must not.
+
+    The first version of the identifiability fix set both the error AND the
+    covariance row/column to NaN; V_MODEL_ERR is sqrt(x^T Sigma x), so it became
+    100% NaN in the default and --legacy cases.
+    """
+    fit = legacy_run.fit
+    assert fit.limb_nonneg_active, "this fixture is expected to pin e"
+    err = legacy_run.layers["V_MODEL_ERR"]
+    inside = np.isfinite(legacy_run.layers["V_LARGE"])
+    finite = np.isfinite(err)
+    assert inside.sum() > 1e6
+    assert finite.sum() == inside.sum(), (finite.sum(), inside.sum())
+    assert np.nanmax(err[finite]) > 0
+    assert np.isnan(fit.errors[TERM_INDEX["e"]])          # reported as unestimated
+    assert not np.isnan(fit.cov[TERM_INDEX["e"]]).any()   # but the covariance is intact
+
+
+def test_n_is_always_flagged_scan_grid():
+    """N is never a design column, so its covariance error is structurally 0."""
+    from solar_chromosphere_velocity.models import VelocityModel, fit_model
+    rng = np.random.default_rng(11)
+    n = 3000
+    coords = dict(
+        sin_lat=rng.uniform(-0.8, 0.8, n),
+        sin_2lat=rng.uniform(-1, 1, n),
+        cos_lat=rng.uniform(0.6, 1.0, n),
+        sin_lon=rng.uniform(-1, 1, n),
+        cos_lon=rng.uniform(-1, 1, n),
+        rho_rad=rng.uniform(0, 1.2, n),
+        b0_rad=0.0,
+    )
+    m = VelocityModel("full-2.0", n_limb=2.0)
+    truth = np.array([1.8, -0.17, -0.72, 0.01, -0.84, 0.50, 2.0, 0.03, -0.05])
+    y = m.evaluate(coords, truth) + rng.normal(0, 0.02, n)
+    fit = fit_model(coords, y, n_limb_values=(1.0, 2.0, 5.0), limb_nonneg=True)
+    assert not fit.limb_nonneg_active          # e is identifiable here
+    assert fit.flags.get("N") == "SCAN_GRID"
+    assert np.isnan(fit.errors[TERM_INDEX["N"]])
+    assert not np.isnan(fit.errors[TERM_INDEX["e"]])
+    assert "ERR_N" not in fit.header_cards()
+
+
+def test_insufficient_data_gets_exactly_one_index_row(tmp_path):
+    """A file failing the fit stage must appear once, not twice."""
+    from astropy.io import fits
+    src = tmp_path / "in"
+    src.mkdir()
+    h = fits.Header()
+    h["BUNIT"] = "km/s"
+    h["B0"] = 0.0
+    h["CRPIX1"] = 3.0
+    h["CRPIX2"] = 3.0
+    h["R_SUN"] = 2.0                 # tiny disk -> far fewer than 100 fit points
+    d = np.full((8, 8), np.nan, dtype=np.float32)
+    d[3, 3] = 0.0
+    fits.PrimaryHDU(d, header=h).writeto(src / "tiny_HA_Vdop.fits")
+    cfg = Config(input_dir=str(src), output_dir=str(tmp_path / "out"),
+                 pattern="*.fits", exclude_globs=(), log_level="ERROR")
+    results = ChromosphereProcessor(cfg).process_directory()
+    assert [r.status for r in results] == ["INSUFFICIENT_DATA"]
+    lines = [l for l in (tmp_path / "out" / "index.csv").read_text().strip().splitlines() if l]
+    assert len(lines) - 1 == 1, lines
+
+
+def test_detect_data_type_uses_the_same_unit_recogniser(tmp_path):
+    """'km s-1' etc. must not be rejected before the opt-out can apply."""
+    from astropy.io import fits
+    from solar_chromosphere_velocity.data_loader import DataType, detect_data_type
+    for i, bunit in enumerate(("km/s", "KM/S", "km s-1", "m s-1", "m/s", "M/S", "kms")):
+        p = tmp_path / ("v%02d.fits" % i)   # macOS is case-insensitive
+        h = fits.Header()
+        h["BUNIT"] = bunit
+        fits.PrimaryHDU(np.zeros((4, 4), np.float32), header=h).writeto(p)
+        assert detect_data_type(str(p)) is DataType.DOPPLER_VDOP, bunit
+
+
+def test_stale_nscan_from_the_input_header_is_not_copied(tmp_path):
+    from astropy.io import fits
+    from solar_chromosphere_velocity.output import write_multihdu
+    src = fits.Header()
+    src["NSCAN"] = "stale-value-from-the-input"
+    src["OBSTIME"] = "x"
+    path = str(tmp_path / "stale.fits")
+    write_multihdu(path, _fake_layers(), src, None, {})
+    with fits.open(path) as h:
+        assert "NSCAN" not in h[0].header
