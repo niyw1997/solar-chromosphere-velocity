@@ -273,7 +273,9 @@ class ChromosphereProcessor:
 
         if cfg.visualize:
             t0 = time.perf_counter()
-            res.figures = self._make_figures(out_path, layers, cfg)
+            res.figures = self._make_figures(out_path, layers, cfg,
+                                             header=self._plot_header(base_cards,
+                                                                      fit))
             timings["plots"] = time.perf_counter() - t0
         timings["total"] = time.perf_counter() - t_start
         res.timings = timings
@@ -283,8 +285,24 @@ class ChromosphereProcessor:
                     timings["total"], n_fit, fit.rms_km_s)
         return res
 
+    @staticmethod
+    def _plot_header(base_cards, fit) -> "object":
+        """Metadata for the figures, so their axes match the written file."""
+        from astropy.io import fits          # no module-level import here
+        h = fits.Header()
+        items = dict(base_cards or {})
+        if fit is not None:
+            items.update(fit.header_cards())
+        for k, v in items.items():
+            val = v[0] if isinstance(v, tuple) else v
+            try:
+                h[k] = val
+            except Exception:
+                pass
+        return h
+
     def _make_figures(self, out_path: str, layers: Dict[str, np.ndarray],
-                      cfg) -> Dict[str, str]:
+                      cfg, header=None) -> Dict[str, str]:
         """Write the multi-panel figures.  Never fatal: the FITS product is
         already on disk, so a plotting problem must not fail the run."""
         from .plotting import COMPONENT_PANELS, plot_layers, plot_summary, \
@@ -293,7 +311,7 @@ class ChromosphereProcessor:
         fmt = cfg.plot_format
         figs: Dict[str, str] = {}
         common = dict(dpi=cfg.plot_dpi, cmap=cfg.colormap,
-                      overlay_mask=cfg.plot_overlay_mask)
+                      overlay_mask=cfg.plot_overlay_mask, header=header)
         try:
             figs["layers"] = plot_layers(
                 layers, "%s_layers.%s" % (base, fmt),
@@ -302,11 +320,12 @@ class ChromosphereProcessor:
                 layers, "%s_components.%s" % (base, fmt),
                 panels=COMPONENT_PANELS, **common)
             figs["summary"] = plot_summary(
-                layers, "%s_summary.%s" % (base, fmt), dpi=cfg.plot_dpi)
+                layers, "%s_summary.%s" % (base, fmt), dpi=cfg.plot_dpi,
+                header=header)
             if cfg.plot_per_component:
                 figs.update(write_component_figures(
                     layers, "%s_component" % base, dpi=cfg.plot_dpi,
-                    cmap=cfg.colormap))
+                    cmap=cfg.colormap, header=header))
             logger.info("wrote %d figure(s): %s", len(figs),
                         ", ".join(os.path.basename(v) for v in figs.values()))
         except Exception as exc:                       # pragma: no cover
