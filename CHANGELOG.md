@@ -92,6 +92,39 @@ Complete rewrite of the processing core.  `--legacy` reproduces v1.0.1 results.
   BlueWhale (matplotlib 3.11.2).  v2 uses the `matplotlib.colormaps`
   registry with a fallback.
 
+### Renamed (2.1)
+
+The configuration and CLI now use solar-physics terms for the quantities that
+denote physical things; the generic I/O names are unchanged.
+
+| 2.0 | 2.1 |
+|---|---|
+| `n_limb` | `limb_exponent` |
+| `n_limb_scan` | `limb_exponent_scan` |
+| `limb_nonneg` | `limb_amplitude_positive` |
+| `window_half` | `correlation_half_width` |
+| `profile_mask_radius` | `reference_profile_radius` |
+| `demean_window` | `continuum_subtraction` |
+| `clip_subpixel` | `limit_subpixel_shift` |
+| `line_center_min_len` | `min_spectral_samples` |
+| `activity_threshold_sigma` | `active_region_sigma_threshold` |
+| `use_mad` | `active_region_robust_sigma` |
+| `min_activity_area` | `min_active_region_area` |
+| `dilation_iterations` | `active_region_grow_steps` |
+| `erosion_iterations` | `active_region_shrink_steps` |
+| `disk_exclusion_radius` | `disk_mask_radius` |
+| `row_block` | `spatial_strip_rows` |
+| `n_workers` | `parallel_processes` |
+| `use_multiprocessing` | `parallel_processing` |
+| `flat_output` | `no_day_subdirectory` |
+| `write_index` | `write_observation_log` |
+| `compress_output` | `rice_compression` |
+| `exclude_globs` | `exclude_patterns` |
+
+CLI flags follow the same names (e.g. `--n-limb` -> `--limb-exponent`,
+`--row-block` -> `--spatial-strip-rows`).  Old v1 configuration keys are still
+accepted through `config_from_v1`.
+
 ### Notes
 
 - `V_OFFSET` is the **systemic translational velocity** - a global zero point.
