@@ -40,12 +40,16 @@ class VisualizationManager:
         else:
             self.plot_dir = None
     
-    def _get_colormap(self, cmap_name: str) -> cm.ScalarMappable:
-        """Get color map with proper normalization."""
-        if cmap_name == "bwr":
-            # Blue-White-Red diverging colormap
-            return cm.get_cmap("bwr")
-        else:
+    def _get_colormap(self, cmap_name: str):
+        """Get a colormap.
+
+        ``matplotlib.cm.get_cmap`` was removed in matplotlib 3.9; v1 relied on
+        it, so plotting broke on any recent matplotlib.  Use the registry and
+        fall back for old versions.
+        """
+        try:
+            return matplotlib.colormaps[cmap_name]
+        except Exception:
             return cm.get_cmap(cmap_name)
     
     def plot_step(self, step_name: str, data: np.ndarray, 

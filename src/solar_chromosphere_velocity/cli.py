@@ -1,346 +1,223 @@
-"""
-Command Line Interface for solar chromosphere velocity processor.
+"""Command line interface.
+
+Two entry points share one implementation:
+
+``scv``            v2 defaults (complete physics, multi-HDU output)
+``process-chase``  v1-compatible entry: implies ``--legacy`` and accepts the
+                   v1 flag names, so existing scripts keep running.
+
+v1 options that never did anything are accepted and explicitly reported as
+ignored rather than silently accepted (see :data:`V1_DEAD_OPTIONS`).
 """
 
 import argparse
-import sys
-import os
-from pathlib import Path
+import glob
 import json
 import logging
+import os
+import sys
 
-from .config import ChromosphereConfig, ProcessingMode, VisualizationMode
+from .config import Config
 from .processor import ChromosphereProcessor
-from .plotting import VisualizationManager
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+__all__ = ["main", "build_parser"]
 
-
-def create_parser() -> argparse.ArgumentParser:
-    """Create command line argument parser."""
-    parser = argparse.ArgumentParser(
-        description="Process solar chromosphere velocity data from CHASE mission.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-    
-    # Required arguments
-    parser.add_argument(
-        "--input", "-i",
-        required=True,
-        help="Input directory containing FITS files"
-    )
-    
-    parser.add_argument(
-        "--output", "-o",
-        required=True,
-        help="Output directory for processed data"
-    )
-    
-    # Optional arguments
-    parser.add_argument(
-        "--pattern", "-p",
-        default="*.fits",
-        help="File pattern to match in input directory"
-    )
-    
-    parser.add_argument(
-        "--config", "-c",
-        help="Path to JSON configuration file"
-    )
-    
-    parser.add_argument(
-        "--visualize", "-v",
-        action="store_true",
-        help="Enable step-by-step visualization"
-    )
-    
-    parser.add_argument(
-        "--visualize-all",
-        action="store_true",
-        help="Enable detailed visualization (all steps)"
-    )
-    
-    parser.add_argument(
-        "--no-visualize",
-        action="store_true",
-        help="Disable all visualization"
-    )
-    
-    # Spectral processing options
-    parser.add_argument(
-        "--spectral-processing",
-        action="store_true",
-        default=True,
-        help="Enable spectral data preprocessing"
-    )
-    
-    parser.add_argument(
-        "--no-spectral-processing",
-        action="store_true",
-        help="Disable spectral data preprocessing"
-    )
-    
-    parser.add_argument(
-        "--spectral-line",
-        choices=["auto", "HA", "FE"],
-        default="auto",
-        help="Specify spectral line type"
-    )
-    
-    parser.add_argument(
-        "--reference-profile",
-        help="Path to reference spectral profile file"
-    )
-    
-    parser.add_argument(
-        "--doppler-method",
-        choices=["cross_correlation", "gaussian_fit"],
-        default="cross_correlation",
-        help="Method for Doppler velocity inversion"
-    )
-    
-    # Processing options
-    parser.add_argument(
-        "--workers", "-w",
-        type=int,
-        default=4,
-        help="Number of parallel workers"
-    )
-    
-    parser.add_argument(
-        "--activity-threshold",
-        type=float,
-        default=3.0,
-        help="Threshold for active region detection (in sigma)"
-    )
-    
-    parser.add_argument(
-        "--min-area",
-        type=int,
-        default=100,
-        help="Minimum area for active regions (in pixels)"
-    )
-    
-    parser.add_argument(
-        "--edge-angle",
-        type=float,
-        default=80.0,
-        help="Angle from disk center to exclude (in degrees)"
-    )
-    
-    # New: Disk exclusion parameter
-    parser.add_argument(
-        "--disk-exclusion",
-        type=float,
-        default=0.95,
-        help="Disk exclusion radius (0-1, exclude > this fraction of solar radius)"
-    )
-    
-    # Output options
-    parser.add_argument(
-        "--save-intermediate",
-        action="store_true",
-        help="Save intermediate processing results"
-    )
-    
-    parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="Overwrite existing output files"
-    )
-    
-    # Logging options
-    parser.add_argument(
-        "--log-level",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        default="INFO",
-        help="Set logging level"
-    )
-    
-    parser.add_argument(
-        "--log-file",
-        help="Path to log file"
-    )
-    
-    # Advanced options
-    parser.add_argument(
-        "--no-validation",
-        action="store_true",
-        help="Disable data validation"
-    )
-    
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug output"
-    )
-    
-    return parser
+# v1 flags that were dead (never read) - kept so old command lines still parse.
+V1_DEAD_OPTIONS = {
+    "spectral_processing": "v2 always inverts spectra when the input is spectral",
+    "spectral_line": "the line is taken from the header/filename",
+    "reference_profile": "the template is always the disk-centre average profile",
+    "doppler_method": "v2 uses the cross-correlation estimator",
+    "no_validation": "validation is always performed",
+    "debug": "removed",
+    "save_intermediate": "v2 always writes the multi-HDU product",
+}
 
 
-def load_config_from_file(config_path: str) -> dict:
-    """Load configuration from JSON file."""
-    try:
-        with open(config_path, 'r') as f:
-            config_dict = json.load(f)
-        logger.info(f"Loaded configuration from {config_path}")
-        return config_dict
-    except Exception as e:
-        logger.error(f"Error loading configuration file: {e}")
-        return {}
+def build_parser(prog: str = "scv", legacy_default: bool = False):
+    p = argparse.ArgumentParser(
+        prog=prog,
+        description="Solar chromosphere velocity processor (v2, multi-HDU output).",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
+    src = p.add_argument_group("input / output")
+    src.add_argument("--input", "-i", help="input directory")
+    src.add_argument("--output", "-o", required=True, help="output directory")
+    src.add_argument("--file", "-f", help="process a single file instead of a directory")
+    src.add_argument("--pattern", "-p", default="*.fits",
+                     help="glob for --input (default matches *_HA/_FE files)")
+    src.add_argument("--exclude", action="append", default=None,
+                     help="glob to exclude (repeatable)")
+    src.add_argument("--flat", action="store_true",
+                     help="do not create per-day subdirectories")
+    src.add_argument("--overwrite", action="store_true",
+                     help="allow overwriting existing outputs")
+    src.add_argument("--compress", action="store_true",
+                     help="write RICE_1 compressed output HDUs")
+    src.add_argument("--no-index", action="store_true", help="skip index.csv")
+
+    mod = p.add_argument_group("model / physics")
+    mod.add_argument("--legacy", action="store_true", default=legacy_default,
+                     help="reproduce v1.0.1 behaviour (regression mode)")
+    mod.add_argument("--rotation-amplitude", choices=["kms", "rad_per_s"],
+                     default="kms",
+                     help="units of A,B,C,D (rad_per_s multiplies by R_sun)")
+    mod.add_argument("--n-limb", type=float, default=None,
+                     help="fix the limb exponent N (default: scan)")
+    mod.add_argument("--allow-negative-limb", action="store_true",
+                     help="do not pin the limb amplitude e to >= 0")
+    mod.add_argument("--zero-point", type=float, default=0.0,
+                     help="constant subtracted from VLOS_OBS (km/s)")
+
+    inv = p.add_argument_group("inversion")
+    inv.add_argument("--window-half", type=int, default=10)
+    inv.add_argument("--profile-radius", type=float, default=100.0,
+                     help="radius of the disk-centre averaging mask (pixels)")
+    inv.add_argument("--raw-correlation", action="store_true",
+                     help="do not mean-subtract the correlation windows")
+
+    msk = p.add_argument_group("masks")
+    msk.add_argument("--disk-exclusion", type=float, default=0.95)
+    msk.add_argument("--edge-angle", type=float, default=80.0)
+    msk.add_argument("--activity-threshold", type=float, default=3.0)
+    msk.add_argument("--min-area", type=int, default=100)
+    msk.add_argument("--sigma-clip", action="store_true",
+                     help="use mean/std instead of the robust MAD threshold")
+
+    perf = p.add_argument_group("performance")
+    perf.add_argument("--row-block", type=int, default=32,
+                      help="rows per streaming block")
+    perf.add_argument("--workers", "-w", type=int, default=1,
+                      help="reserved; v2 is fast enough single-process")
+
+    out = p.add_argument_group("plots / logging")
+    out.add_argument("--visualize", "-v", action="store_true")
+    out.add_argument("--plot-dpi", type=int, default=150)
+    out.add_argument("--plot-format", default="png")
+    out.add_argument("--log-level", default="INFO",
+                     choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+    out.add_argument("--log-file")
+    out.add_argument("--config", "-c", help="JSON configuration file")
+    out.add_argument("--json", action="store_true",
+                     help="print the per-file summary as JSON")
+
+    if legacy_default:
+        # v1 flag names, accepted for compatibility
+        g = p.add_argument_group("v1 compatibility (accepted, mostly ignored)")
+        g.add_argument("--spectral-processing", action="store_true", default=True)
+        g.add_argument("--no-spectral-processing", action="store_true")
+        g.add_argument("--spectral-line", choices=["auto", "HA", "FE"], default="auto")
+        g.add_argument("--reference-profile")
+        g.add_argument("--doppler-method",
+                       choices=["cross_correlation", "gaussian_fit"],
+                       default="cross_correlation")
+        g.add_argument("--save-intermediate", action="store_true")
+        g.add_argument("--no-validation", action="store_true")
+        g.add_argument("--debug", action="store_true")
+        g.add_argument("--visualize-all", action="store_true")
+        g.add_argument("--no-visualize", action="store_true")
+    return p
 
 
-def save_config_to_file(config: ChromosphereConfig, output_dir: str):
-    """Save configuration to JSON file."""
-    config_path = os.path.join(output_dir, "processing_config.json")
-    
-    try:
-        with open(config_path, 'w') as f:
-            json.dump(config.to_dict(), f, indent=2, default=str)
-        logger.info(f"Saved configuration to {config_path}")
-    except Exception as e:
-        logger.error(f"Error saving configuration: {e}")
+def _setup_logging(level: str, log_file=None):
+    handlers = [logging.StreamHandler(sys.stderr)]
+    if log_file:
+        handlers.append(logging.FileHandler(log_file))
+    logging.basicConfig(level=getattr(logging, level.upper(), logging.INFO),
+                        format="%(levelname)s %(name)s: %(message)s",
+                        handlers=handlers, force=True)
 
 
-def setup_config(args: argparse.Namespace) -> ChromosphereConfig:
-    """Setup configuration from command line arguments."""
-    # Start with default configuration
-    config = ChromosphereConfig()
-    
-    # Load configuration from file if provided
+def _report_ignored(args):
+    ignored = []
+    for name, why in V1_DEAD_OPTIONS.items():
+        if not hasattr(args, name):
+            continue
+        val = getattr(args, name)
+        if val not in (None, False, "auto", "cross_correlation"):
+            ignored.append("%s (%s)" % (name, why))
+    if getattr(args, "no_visualize", False):
+        args.visualize = False
+    if getattr(args, "visualize_all", False):
+        args.visualize = True
+    if ignored:
+        logging.getLogger("scv").warning(
+            "these v1 options have no effect in v2: %s", "; ".join(ignored))
+
+
+def config_from_args(args) -> Config:
+    kw = dict(
+        output_dir=args.output,
+        input_dir=args.input or "",
+        pattern=args.pattern,
+        legacy=bool(args.legacy),
+        rotation_amplitude=args.rotation_amplitude,
+        n_limb=args.n_limb,
+        limb_nonneg=not args.allow_negative_limb,
+        zero_point_km_s=args.zero_point,
+        window_half=args.window_half,
+        profile_mask_radius=args.profile_radius,
+        demean_window=False if args.raw_correlation else None,
+        disk_exclusion_radius=args.disk_exclusion,
+        edge_exclusion_angle=args.edge_angle,
+        activity_threshold_sigma=args.activity_threshold,
+        min_activity_area=args.min_area,
+        use_mad=False if args.sigma_clip else None,
+        row_block=args.row_block,
+        n_workers=args.workers,
+        visualize=args.visualize,
+        plot_dpi=args.plot_dpi,
+        plot_format=args.plot_format,
+        compress_output=args.compress,
+        flat_output=args.flat,
+        overwrite=args.overwrite,
+        write_index=not args.no_index,
+        log_level=args.log_level,
+        log_file=args.log_file,
+    )
+    if args.exclude:
+        kw["exclude_globs"] = tuple(args.exclude)
     if args.config:
-        file_config = load_config_from_file(args.config)
-        config.update(**file_config)
-    
-    # Update with command line arguments
-    config.input_dir = args.input
-    config.output_dir = args.output
-    
-    # Set visualization mode
-    if args.no_visualize:
-        config.visualize_steps = False
-        config.visualization_mode = VisualizationMode.NONE
-    elif args.visualize_all:
-        config.visualize_steps = True
-        config.visualization_mode = VisualizationMode.ALL
-    elif args.visualize:
-        config.visualize_steps = True
-        config.visualization_mode = VisualizationMode.BASIC
+        with open(args.config) as fh:
+            kw.update(json.load(fh))
+    return Config(**kw)
+
+
+def main(argv=None):
+    prog = os.path.basename(sys.argv[0] or "scv")
+    legacy_default = prog.startswith("process-chase")
+    parser = build_parser(prog=prog, legacy_default=legacy_default)
+    args = parser.parse_args(argv)
+
+    if not args.file and not args.input:
+        parser.error("either --file or --input is required")
+    _setup_logging(args.log_level, args.log_file)
+    _report_ignored(args)
+
+    cfg = config_from_args(args)
+    proc = ChromosphereProcessor(cfg)
+
+    if args.file:
+        results = [proc.process_file(args.file)]
     else:
-        config.visualize_steps = False
-        config.visualization_mode = VisualizationMode.NONE
-    
-    # Set spectral processing options
-    if args.no_spectral_processing:
-        config.spectral_processing = False
+        results = proc.process_directory()
+
+    ok = [r for r in results if r.status == "ok"]
+    bad = [r for r in results if r.status != "ok"]
+    if args.json:
+        print(json.dumps([r.summary() for r in results], indent=2, default=str))
     else:
-        config.spectral_processing = args.spectral_processing
-    
-    config.spectral_line_type = args.spectral_line
-    config.doppler_inversion_method = args.doppler_method
-    
-    if args.reference_profile:
-        config.reference_profile_path = args.reference_profile
-    
-    # Set processing options
-    config.n_workers = args.workers
-    config.activity_threshold_sigma = args.activity_threshold
-    config.min_activity_area = args.min_area
-    config.edge_exclusion_angle = args.edge_angle
-    config.disk_exclusion_radius = args.disk_exclusion  # New parameter
-    config.save_intermediate = args.save_intermediate
-    config.overwrite_existing = args.overwrite
-    config.log_level = args.log_level
-    config.log_file = args.log_file
-    config.enable_validation = not args.no_validation
-    config.enable_debug_output = args.debug
-    
-    return config
-
-
-def main():
-    """Main CLI entry point."""
-    parser = create_parser()
-    args = parser.parse_args()
-    
-    # Validate arguments
-    if not os.path.exists(args.input):
-        logger.error(f"Input directory does not exist: {args.input}")
-        sys.exit(1)
-    
-    # Validate disk exclusion parameter
-    if args.disk_exclusion <= 0 or args.disk_exclusion > 1:
-        logger.error(f"Disk exclusion must be between 0 and 1, got: {args.disk_exclusion}")
-        sys.exit(1)
-    
-    # Setup configuration
-    config = setup_config(args)
-    
-    # Save configuration
-    save_config_to_file(config, config.output_dir)
-    
-    # Create processor
-    try:
-        processor = ChromosphereProcessor(config)
-    except Exception as e:
-        logger.error(f"Failed to initialize processor: {e}")
-        sys.exit(1)
-    
-    # Process files
-    try:
-        logger.info(f"Starting processing of files in {args.input}")
-        logger.info(f"Output will be saved to {args.output}")
-        logger.info(f"Disk exclusion radius: {config.disk_exclusion_radius}")
-        
-        results = processor.process_directory(args.pattern)
-        
-        logger.info(f"Processing completed successfully!")
-        logger.info(f"Processed {len(results)} files")
-        
-        # Print summary
-        if results:
-            print_summary(results, config)
-            
-    except KeyboardInterrupt:
-        logger.info("Processing interrupted by user")
-        sys.exit(130)
-    except Exception as e:
-        logger.error(f"Processing failed: {e}")
-        sys.exit(1)
-
-
-def print_summary(results: list, config: ChromosphereConfig):
-    """Print processing summary."""
-    print("\n" + "="*60)
-    print("PROCESSING SUMMARY")
-    print("="*60)
-    
-    # Count different types of data
-    spectral_count = sum(1 for r in results 
-                        if r.get("metadata", {}).get("data_type", "").startswith("spectral"))
-    doppler_count = len(results) - spectral_count
-    preprocessed_count = sum(1 for r in results 
-                            if r.get("metadata", {}).get("preprocessed", False))
-    
-    print(f"Total files processed: {len(results)}")
-    print(f"Spectral data files: {spectral_count}")
-    print(f"Doppler velocity files: {doppler_count}")
-    print(f"Preprocessed files: {preprocessed_count}")
-    print(f"Spectral processing: {'Enabled' if config.spectral_processing else 'Disabled'}")
-    print(f"Spectral line type: {config.spectral_line_type}")
-    print(f"Doppler method: {config.doppler_inversion_method}")
-    print(f"Disk exclusion radius: {config.disk_exclusion_radius}")
-    print(f"Output directory: {config.output_dir}")
-    print("="*60)
-    
-    if config.visualize_steps:
-        print(f"\nVisualizations saved to: {os.path.join(config.output_dir, 'plots')}")
+        for r in results:
+            if r.fit is not None:
+                print("%-44s -> %s  RMS=%.4f km/s  N=%.2f  V_OFFSET=%+.4f km/s"
+                      % (r.srcfile, os.path.basename(r.outfile or "-"),
+                         r.fit.rms_km_s, r.fit.n_limb, r.fit.params[4]))
+            else:
+                print("%-44s -> %s (%s: %s)"
+                      % (r.srcfile, r.outfile or "-", r.status, r.message))
+        print("summary: %d ok, %d failed" % (len(ok), len(bad)))
+    return 1 if bad else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -158,3 +158,6 @@ logs/
 output/
 results/
 processed/
+# v2 outputs
+v2_out*/
+*.csv

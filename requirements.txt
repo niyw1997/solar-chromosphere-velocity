@@ -1,22 +1,12 @@
-# Core dependencies
-numpy>=1.21.0
-scipy>=1.7.0
+# Runtime dependencies (kept in sync with pyproject.toml).
+# v1 additionally required sunpy, fitsio, scikit-image, numba and tqdm; sunpy
+# was imported but never used, fitsio/scikit-image were never imported, and the
+# batched inversion no longer needs numba or tqdm.
+numpy>=1.21
+scipy>=1.7
 astropy>=5.0
-sunpy>=3.0
-matplotlib>=3.5.0
-scikit-image>=0.19.0
-tqdm>=4.64.0
-fitsio>=1.1.0
-numba>=0.56.0
 
-# Optional dependencies for development
-pytest>=7.0
-pytest-cov>=4.0
-black>=22.0
-flake8>=5.0
-mypy>=0.991
-
-# Documentation
-sphinx>=5.0
-sphinx-rtd-theme>=1.0
-nbsphinx>=0.8.0
+# Optional: plotting (scripts/visualize_layers.py, --visualize)
+# matplotlib>=3.5
+# Optional: tests
+# pytest>=7.0
