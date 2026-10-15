@@ -63,7 +63,13 @@ Complete rewrite of the processing core.  `--legacy` reproduces v1.0.1 results.
 - `create_solar_mask` no longer prints debug output; the duplicate
   `from turtle import shape` imports and the repeated logging configuration are
   gone.
-- `matplotlib.cm.get_cmap` (removed in matplotlib 3.9) is no longer used.
+- `matplotlib.cm.get_cmap` is no longer used.  It is present in matplotlib
+  3.10.8 and **absent in 3.11.2** (verified with both versions installed
+  locally), and v1 calls it from `ChromosphereProcessor.__init__`, so v1
+  cannot even be *instantiated* under matplotlib 3.11 regardless of
+  whether plotting is enabled - which is what stopped the v1 baseline on
+  BlueWhale (matplotlib 3.11.2).  v2 uses the `matplotlib.colormaps`
+  registry with a fallback.
 
 ### Notes
 
