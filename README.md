@@ -11,8 +11,9 @@ parameters.
 
 * Full method write-up (program flow, parallel framework, spectral fitting,
   velocity model, physical meaning and expression of every term):
-  **[`docs/theory.pdf`](docs/theory.pdf)** (source: [`docs/theory.tex`](docs/theory.tex),
-  in Chinese; rebuild with `latexmk -xelatex docs/theory.tex`).
+  **[`docs/manual.pdf`](docs/manual.pdf)** (source: [`docs/manual.tex`](docs/manual.tex),
+  rebuild with `latexmk -xelatex docs/manual.tex`;
+    example H-alpha and Fe I products are in Section 11).
 * Output contract: [`docs/OUTPUT.md`](docs/OUTPUT.md)
 * Change history: [`CHANGELOG.md`](CHANGELOG.md)
 
@@ -230,7 +231,7 @@ stand-alone figure tool (panel selection, per-component files, shared scales).
 
 ## Method
 
-This section summarises [`docs/theory.pdf`](docs/theory.pdf), which gives the
+This section summarises [`docs/manual.pdf`](docs/manual.pdf), which gives the
 full derivation and the correspondence with the source.
 
 ### Program flow

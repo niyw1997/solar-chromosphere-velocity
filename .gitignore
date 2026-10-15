@@ -173,3 +173,6 @@ v2_out*/
 *.fdb_latexmk
 *.synctex.gz
 *.xdv
+
+# Chinese companion of the manual: kept locally, deliberately NOT published
+docs/manual_zh.*
