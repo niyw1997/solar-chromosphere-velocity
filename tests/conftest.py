@@ -59,7 +59,7 @@ def legacy_run(tmp_path_factory):
     from solar_chromosphere_velocity import ChromosphereProcessor, Config
     out = tmp_path_factory.mktemp("legacy")
     cfg = Config(input_dir=DATA, output_dir=str(out), legacy=True,
-                 log_level="ERROR", write_index=True)
+                 log_level="ERROR", write_observation_log=True)
     return ChromosphereProcessor(cfg).process_file(VDOP)
 
 

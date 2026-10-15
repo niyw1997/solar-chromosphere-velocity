@@ -82,8 +82,8 @@ class DopplerInverter:
 
     # -- average profile ---------------------------------------------------
     def average_profile(self, cube, params):
-        """Mean disk-centre profile over ``profile_mask_radius`` pixels."""
-        rad = float(self.config.profile_mask_radius)
+        """Mean disk-centre profile over ``reference_profile_radius`` pixels."""
+        rad = float(self.config.reference_profile_radius)
         box, (y0, x0) = cube.read_profile_patch(params, radius=rad)
         ny, nx = box.shape[1], box.shape[2]
         yy = np.arange(y0, y0 + ny, dtype=np.float64)[:, None]
@@ -102,10 +102,10 @@ class DopplerInverter:
 
         rest = rest_wavelength(params.spec_line)
         lc = fit_line_center(avg, params, legacy=cfg.legacy,
-                             min_len=cfg.line_center_min_len, rest=rest)
+                             min_len=cfg.min_spectral_samples, rest=rest)
 
         nz = cube.n_lambda
-        wh = int(cfg.window_half)
+        wh = int(cfg.correlation_half_width)
         s = max(0, lc.index - wh)
         e = min(nz, lc.index + wh + 1)
         if e - s < 3:
@@ -133,10 +133,10 @@ class DopplerInverter:
             ref = ref - ref.mean()
 
         radius = params.radius
-        row_block = int(cfg.row_block)
+        spatial_strip_rows = int(cfg.spatial_strip_rows)
         n_inv = 0
-        for y0 in range(0, ny, row_block):
-            y1 = min(ny, y0 + row_block)
+        for y0 in range(0, ny, spatial_strip_rows):
+            y1 = min(ny, y0 + spatial_strip_rows)
             block = cube.read(s, e, y0, y1)          # (nz_win, rows, nx)
             nzw, rows, _ = block.shape
             flat = block.reshape(nzw, -1).astype(np.float64)
@@ -147,7 +147,7 @@ class DopplerInverter:
                 sig = sig - sig.mean(axis=0, keepdims=True)
             F = np.fft.fft(sig, axis=0) * np.conj(np.fft.fft(ref))[:, None]
             corr = np.fft.fftshift(np.fft.ifft(F, axis=0).real, axes=0)
-            disp = _parabolic_shift(corr, cfg.clip_subpixel_on)
+            disp = _parabolic_shift(corr, cfg.limit_subpixel_shift_on)
             v = (disp * scale).astype(np.float32)
 
             # v1 semantics: zero outside the solar disk
@@ -166,9 +166,9 @@ class DopplerInverter:
 
         # disk exclusion -> NaN
         from .masks import apply_disk_exclusion
-        vel = apply_disk_exclusion(vel, params, cfg.disk_exclusion_radius)
+        vel = apply_disk_exclusion(vel, params, cfg.disk_mask_radius)
 
         return DopplerResult(velocity=vel, scale_km_s=float(scale), line_center=lc,
                              window=(s, e), line_core_intensity=core,
                              n_inverted=n_inv, demeaned=bool(cfg.demean),
-                             clipped=bool(cfg.clip_subpixel_on))
+                             clipped=bool(cfg.limit_subpixel_shift_on))

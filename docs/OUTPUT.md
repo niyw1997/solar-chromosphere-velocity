@@ -47,7 +47,7 @@ measured value.  `PRIMARY` carries `FITFLAG` listing them.
 fitted as if it were km/s (`Config.require_velocity_unit`, default True).
 
 `V_DIFFROT` … `V_MODEL_ERR` are `NaN` outside the fitted region (the tighter of
-the disk and edge cuts).  `VLOS_*` are `NaN` outside `disk_exclusion_radius`.
+the disk and edge cuts).  `VLOS_*` are `NaN` outside `disk_mask_radius`.
 
 ## Per-layer header
 
