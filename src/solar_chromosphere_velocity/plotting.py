@@ -150,8 +150,13 @@ def _draw_panel(ax, name, data, header, *, cmap="bwr", percentile=99.5,
         else:
             lo = vmin if vmin is not None else float(np.nanmin(finite))
             hi = vmax if vmax is not None else float(np.nanmax(finite))
-        cm = colormap(cmap).copy()
-        cm.set_bad("white")
+        cm = colormap(cmap)
+        try:
+            # set_bad is pending-deprecated in matplotlib 3.11
+            cm = cm.with_extremes(bad="white")
+        except Exception:                       # pragma: no cover - old mpl
+            cm = cm.copy()
+            cm.set_bad("white")
         im = ax.imshow(data, origin="lower", cmap=cm, vmin=lo, vmax=hi,
                        interpolation="nearest")
         if overlay is not None:
