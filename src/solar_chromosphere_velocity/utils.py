@@ -61,7 +61,7 @@ class ActiveRegionDetector:
 
     def detect(self, velocity_map, params) -> np.ndarray:
         cfg = self.config
-        if not hasattr(cfg, "mad_threshold"):
+        if not hasattr(cfg, "active_region_robust_threshold"):
             raise TypeError("ActiveRegionDetector needs a v2 Config")
         return active_region_mask(velocity_map, _Params(params), cfg)
 
@@ -148,9 +148,9 @@ class ParallelProcessor:
     entirely because the batched implementation already meets the target.
     """
 
-    def __init__(self, n_workers: int = 1):
+    def __init__(self, parallel_processes: int = 1):
         import multiprocessing as mp
-        self.n_workers = max(1, min(int(n_workers), mp.cpu_count()))
+        self.parallel_processes = max(1, min(int(parallel_processes), mp.cpu_count()))
         self.pool = None
 
     def map_function(self, func, iterable):

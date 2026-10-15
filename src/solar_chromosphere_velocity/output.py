@@ -151,7 +151,7 @@ class OutputLayout:
 
     # -- paths -------------------------------------------------------------
     def dir_for(self, key: ObsKey) -> str:
-        if self.config.flat_output or not self.root:
+        if self.config.no_day_subdirectory or not self.root:
             return self.root
         d = os.path.join(self.root, key.day)
         os.makedirs(d, exist_ok=True)
@@ -183,7 +183,7 @@ class OutputLayout:
     # -- index -------------------------------------------------------------
     @property
     def index_path(self) -> Optional[str]:
-        if not (self.root and self.config.write_index):
+        if not (self.root and self.config.write_observation_log):
             return None
         return os.path.join(self.root, "index.csv")
 
@@ -192,7 +192,7 @@ class OutputLayout:
         if not path:
             return
         fields = ["obs_time", "day", "line", "source", "hdu_file", "src_file",
-                  "model_version", "legacy", "n_points", "rms_km_s", "n_limb",
+                  "model_version", "legacy", "n_points", "rms_km_s", "limb_exponent",
                   "A", "B", "C", "D", "G", "e", "N", "MC1", "MC2",
                   "disk_excl", "edge_deg", "status"]
         exists = os.path.exists(path)
@@ -452,21 +452,21 @@ def write_multihdu(path: str, layers: Dict[str, np.ndarray],
         th["RSSFIT"] = float(fit.rss)
         th["RMSFIT"] = float(fit.rms_km_s)
         th["FITCOND"] = float(fit.condition)
-        th["NLIMB"] = float(fit.n_limb)
+        th["NLIMB"] = float(fit.limb_exponent)
         th["MODELVER"] = fit.model_version
         th["ROTSCALE"] = fit.rotation_amplitude
         th["UNITSCL"] = (rot_unit, "unit of A,B,C,D in FITPARAMS")
-        if np.isfinite(getattr(fit, "n_limb_scan_step", float("nan"))):
-            th["NSTEP"] = (float(fit.n_limb_scan_step),
+        if np.isfinite(getattr(fit, "limb_exponent_scan_step", float("nan"))):
+            th["NSTEP"] = (float(fit.limb_exponent_scan_step),
                            "half-step of the N scan grid (not an error)")
         if getattr(fit, "flags", None):
             th["FITFLAG"] = ",".join("%s:%s" % kv for kv in sorted(fit.flags.items()))
         if fit.limb_nonneg_active:
             th["LIMBZERO"] = (True, "e pinned to 0 (negative at the optimum)")
-        if fit.n_limb_scan:
+        if fit.limb_exponent_scan:
             # keep the RSS-vs-N profile short enough for a single card
             # write every scan point without cutting a number in half
-            tokens = ["%g:%.4g" % (n, r) for n, r in fit.n_limb_scan]
+            tokens = ["%g:%.4g" % (n, r) for n, r in fit.limb_exponent_scan]
             chunks, cur = [], ""
             for tok in tokens:
                 if cur and len(cur) + 1 + len(tok) > 52:

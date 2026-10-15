@@ -101,8 +101,8 @@ def _base_columns(coords: Dict[str, np.ndarray], model_version: str,
     return np.stack([a, b, c, d, mc1, mc2, g], axis=1)
 
 
-def _limb_column(coords: Dict[str, np.ndarray], n_limb: float):
-    return (1.0 - np.cos(coords["rho_rad"])) ** float(n_limb)
+def _limb_column(coords: Dict[str, np.ndarray], limb_exponent: float):
+    return (1.0 - np.cos(coords["rho_rad"])) ** float(limb_exponent)
 
 
 def _assemble(base: np.ndarray, limb: np.ndarray) -> np.ndarray:
@@ -180,15 +180,15 @@ class ModelFit:
     params: np.ndarray                 # (9,) in TERM_ORDER
     errors: np.ndarray                 # (9,) 1-sigma
     cov: np.ndarray                    # (9,9) in TERM_ORDER
-    n_limb: float
+    limb_exponent: float
     rss: float
     n_points: int
     model_version: str
     rotation_amplitude: str
     condition: float = float("nan")
-    n_limb_scan: Optional[Sequence[Tuple[float, float]]] = None
+    limb_exponent_scan: Optional[Sequence[Tuple[float, float]]] = None
     limb_nonneg_active: bool = False
-    n_limb_scan_step: float = float("nan")   # half the scan grid spacing
+    limb_exponent_scan_step: float = float("nan")   # half the scan grid spacing
     dropped: Tuple[str, ...] = ()
     flags: Dict[str, str] = field(default_factory=dict)
 
@@ -218,7 +218,7 @@ class ModelFit:
     def header_cards(self) -> Dict[str, object]:
         cards = {"NPOINT": int(self.n_points), "RSSFIT": float(self.rss),
                  "RMSFIT": self.rms_km_s, "FITCOND": float(self.condition),
-                 "NLIMB": float(self.n_limb), "MODELVER": self.model_version,
+                 "NLIMB": float(self.limb_exponent), "MODELVER": self.model_version,
                  "ROTSCALE": self.rotation_amplitude,
                  "V_OFFSET": (float(self.params[4]),
                               "systemic translational velocity (km/s)")}
@@ -241,16 +241,16 @@ class ModelFit:
 class VelocityModel:
     """Evaluates the model and its individual components."""
 
-    def __init__(self, model_version: str = "full-2.0", n_limb: float = 2.0,
+    def __init__(self, model_version: str = "full-2.0", limb_exponent: float = 2.0,
                  rotation_radius: bool = False):
         self.model_version = model_version
-        self.n_limb = float(n_limb)
+        self.limb_exponent = float(limb_exponent)
         self.rotation_radius = bool(rotation_radius)
 
     # -- design ------------------------------------------------------------
     def design(self, coords: Dict[str, np.ndarray]) -> np.ndarray:
         base = _base_columns(coords, self.model_version, self.rotation_radius)
-        limb = _limb_column(coords, self.n_limb)
+        limb = _limb_column(coords, self.limb_exponent)
         return _assemble(base, limb)
 
     def design_without_limb(self, coords: Dict[str, np.ndarray]) -> np.ndarray:
@@ -293,7 +293,7 @@ class VelocityModel:
             scale = R_SUN_KM if self.rotation_radius else 1.0
         rotation = scale * (d["A"] + d["B"] * sp ** 2 + d["C"] * sp ** 4
                             + d["D"] * np.sin(rho) ** 10) * proj
-        limb = d["e"] * (1.0 - np.cos(rho)) ** self.n_limb
+        limb = d["e"] * (1.0 - np.cos(rho)) ** self.limb_exponent
         meridional = (d["MC1"] * sp + d["MC2"] * s2p) * merid
         offset = np.full_like(sp, d["G"])
         total = rotation + limb + meridional + offset
@@ -315,16 +315,16 @@ class VelocityModel:
 
 # --------------------------------------------------------------------------
 def fit_model_streaming(blocks: Iterable[Tuple[Dict[str, np.ndarray], np.ndarray]],
-                        n_limb_values: Sequence[float],
+                        limb_exponent_values: Sequence[float],
                         model_version: str = "full-2.0",
                         rotation_radius: bool = False,
-                        limb_nonneg: bool = True) -> ModelFit:
+                        limb_amplitude_positive: bool = True) -> ModelFit:
     """Fit by streaming blocks of ``(coords, velocity)``.
 
     Every candidate ``N`` gets its own normal-equation accumulator, so the
     sample is read exactly once and no design matrix is ever stored whole.
     """
-    ns = [float(x) for x in n_limb_values]
+    ns = [float(x) for x in limb_exponent_values]
     acc = {n: NormalEquations(8) for n in ns}
     n_points = 0
     for coords, y in blocks:
@@ -351,7 +351,7 @@ def fit_model_streaming(blocks: Iterable[Tuple[Dict[str, np.ndarray], np.ndarray
     keep = None
     dropped = ()
     limb_active = False
-    if limb_nonneg and p_best[4] < 0:
+    if limb_amplitude_positive and p_best[4] < 0:
         # single active-set step: the unconstrained optimum violates e >= 0, so
         # the constrained optimum sits on the boundary e = 0.  Dropping the
         # column necessarily raises the RSS - that is the cost of the
@@ -407,16 +407,16 @@ def fit_model_streaming(blocks: Iterable[Tuple[Dict[str, np.ndarray], np.ndarray
         # regression, caught by review.
         errors9[i] = np.nan
 
-    return ModelFit(params=params9, errors=errors9, cov=cov9, n_limb=n_best,
+    return ModelFit(params=params9, errors=errors9, cov=cov9, limb_exponent=n_best,
                     rss=float(rss_best), n_points=int(n_points),
                     model_version=model_version,
                     rotation_amplitude="rad_per_s" if rotation_radius else "kms",
-                    condition=cond, n_limb_scan=tuple(scan),
-                    limb_nonneg_active=limb_active, n_limb_scan_step=scan_step,
+                    condition=cond, limb_exponent_scan=tuple(scan),
+                    limb_nonneg_active=limb_active, limb_exponent_scan_step=scan_step,
                     dropped=dropped, flags=flags)
 
 
 def fit_model(coords: Dict[str, np.ndarray], velocity: np.ndarray,
-              n_limb_values: Sequence[float], **kwargs) -> ModelFit:
+              limb_exponent_values: Sequence[float], **kwargs) -> ModelFit:
     """Convenience wrapper for in-memory samples."""
-    return fit_model_streaming([(coords, velocity)], n_limb_values, **kwargs)
+    return fit_model_streaming([(coords, velocity)], limb_exponent_values, **kwargs)

@@ -112,7 +112,7 @@ class ChromosphereProcessor:
                 path, require_unit=self.config.require_velocity_unit)
             params = extract_solar_params(header).require_geometry()
             data = apply_disk_exclusion(data, params,
-                                        self.config.disk_exclusion_radius)
+                                        self.config.disk_mask_radius)
             return data, header, params, dtype, None
         raise ValueError("unrecognised input %s (type=%s)"
                          % (os.path.basename(path), dtype.value))
@@ -121,8 +121,8 @@ class ChromosphereProcessor:
     def _fit_sample_blocks(self, flagged, params, mask):
         """Yield (coords, velocity) blocks over the fit sample."""
         ny = flagged.shape[0]
-        for y0 in range(0, ny, self.config.row_block):
-            y1 = min(ny, y0 + self.config.row_block)
+        for y0 in range(0, ny, self.config.spatial_strip_rows):
+            y1 = min(ny, y0 + self.config.spatial_strip_rows)
             sub = mask[y0:y1]
             if not sub.any():
                 continue
@@ -137,8 +137,8 @@ class ChromosphereProcessor:
         out = {name: np.full((ny, nx), np.nan, dtype=np.float32)
                for name in ("V_DIFFROT", "V_LIMB", "V_MERID", "V_OFFSET",
                             "V_LARGE", "V_MODEL_ERR")}
-        for y0 in range(0, ny, self.config.row_block):
-            y1 = min(ny, y0 + self.config.row_block)
+        for y0 in range(0, ny, self.config.spatial_strip_rows):
+            y1 = min(ny, y0 + self.config.spatial_strip_rows)
             iy, ix = np.nonzero(self._block_disk_mask(y0, y1, nx, params, radius_px))
             if iy.size == 0:
                 continue
@@ -185,7 +185,7 @@ class ChromosphereProcessor:
 
         # fit sample = effective disk  &  no active region  &  finite
         eff_radius, binding, r_edge, r_disk = effective_radius_px(
-            params, cfg.disk_exclusion_radius, cfg.edge_exclusion_angle)
+            params, cfg.disk_mask_radius, cfg.edge_exclusion_angle)
         res.binding_mask = binding
         fit_region = disk_mask(vcorr.shape, params,
                                frac=eff_radius / float(params.radius))
@@ -211,15 +211,15 @@ class ChromosphereProcessor:
         # linear fit (streamed normal equations, profile scan over N)
         t0 = time.perf_counter()
         model = VelocityModel(model_version=cfg.model_version,
-                              n_limb=cfg.n_limb or 2.0,
+                              limb_exponent=cfg.limb_exponent or 2.0,
                               rotation_radius=cfg.use_rotation_radius)
         fit = fit_model_streaming(
             self._fit_sample_blocks(vcorr, params, fit_mask),
-            n_limb_values=cfg.n_limb_values,
+            limb_exponent_values=cfg.limb_exponent_values,
             model_version=cfg.model_version,
             rotation_radius=cfg.use_rotation_radius,
-            limb_nonneg=cfg.limb_nonneg)
-        model.n_limb = fit.n_limb
+            limb_amplitude_positive=cfg.limb_amplitude_positive)
+        model.limb_exponent = fit.limb_exponent
         timings["fit"] = time.perf_counter() - t0
         res.fit = fit
 
@@ -232,7 +232,7 @@ class ChromosphereProcessor:
 
         # zero-mean convention: v1 used the whole disk, v2 the quiet-Sun sample
         mean_mask = fit_region if not cfg.legacy else disk_mask(
-            resid.shape, params, frac=cfg.disk_exclusion_radius)
+            resid.shape, params, frac=cfg.disk_mask_radius)
         sel = mean_mask & np.isfinite(resid)
         quiet_mean = float(np.mean(resid[sel])) if sel.any() else 0.0
         resid = (resid - quiet_mean).astype(np.float32)
@@ -266,7 +266,7 @@ class ChromosphereProcessor:
         t0 = time.perf_counter()
         out_path = self.layout.resolve(key, product="scv")
         write_multihdu(out_path, layers, fits_header(header), fit=fit,
-                       base_cards=base_cards, compress=cfg.compress_output,
+                       base_cards=base_cards, compress=cfg.rice_compression,
                        overwrite=True)
         res.outfile = out_path
         timings["write"] = time.perf_counter() - t0
@@ -348,7 +348,7 @@ class ChromosphereProcessor:
             "R_SUN": (float(params.radius), "solar radius (pixels)"),
             "B0": (float(params.b0), "solar B0 (deg)"),
             "INST_ROT": (float(params.p0), "instrument P0 (deg)"),
-            "DISKEXCL": (float(self.config.disk_exclusion_radius),
+            "DISKEXCL": (float(self.config.disk_mask_radius),
                          "disk exclusion radius (fraction of R_SUN)"),
             "EDGEEXC": (float(edge_angle), "edge exclusion angle (deg)"),
             "MASKBIND": (binding, "binding radial cut: disk|edge|equal"),
@@ -357,7 +357,7 @@ class ChromosphereProcessor:
             "ZEROPT": (float(off), "zero point subtracted from VLOS_OBS (km/s)"),
             "MODELVER": (self.config.model_version, "model formula version"),
             "LEGACY": (bool(self.config.legacy), "v1 compatibility mode"),
-            "ROWBLK": (int(self.config.row_block), "streaming row-block size"),
+            "ROWBLK": (int(self.config.spatial_strip_rows), "streaming row-block size"),
             "UNITSYS": ("LOS km/s, +receding",
                         "sign convention of every velocity layer"),
             "INVMETH": ("xcorr_fft_batched" if dtype in (DataType.SPECTRAL_HA,
@@ -386,14 +386,14 @@ class ChromosphereProcessor:
             "source": key.source, "hdu_file": res.outfile or "",
             "src_file": key.srcfile, "model_version": cfg.model_version,
             "legacy": cfg.legacy, "n_points": res.n_fit_points,
-            "disk_excl": cfg.disk_exclusion_radius,
+            "disk_excl": cfg.disk_mask_radius,
             "edge_deg": cfg.edge_exclusion_angle,
             "status": res.status,
         }
         if fit is not None:
             row.update(fit.as_dict())
             row["rms_km_s"] = fit.rms_km_s
-            row["n_limb"] = fit.n_limb
+            row["limb_exponent"] = fit.limb_exponent
         self.layout.append_index(row)
         res.indexed = True
 
@@ -405,14 +405,14 @@ class ChromosphereProcessor:
         files = sorted(glob.glob(os.path.join(cfg.input_dir,
                                               pattern or cfg.pattern)))
         excluded = []
-        for g in cfg.exclude_globs:
+        for g in cfg.exclude_patterns:
             hits = set(glob.glob(os.path.join(cfg.input_dir, g)))
             excluded.extend(sorted(hits))
         if excluded:
             exc = set(excluded)
             files = [f for f in files if f not in exc]
             logger.info("excluded %d file(s) matching %s",
-                        len(excluded), ", ".join(cfg.exclude_globs))
+                        len(excluded), ", ".join(cfg.exclude_patterns))
         if not files:
             logger.warning("no input files matched %s in %s",
                            pattern or cfg.pattern, cfg.input_dir)

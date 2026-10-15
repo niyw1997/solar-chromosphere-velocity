@@ -3,7 +3,7 @@
 v1 issues fixed here:
   * the disk/edge masks are now resolved explicitly, so the caller learns which
     constraint actually binds (with the v1 defaults ``edge_exclusion_angle=80``
-    is completely absorbed by ``disk_exclusion_radius=0.95``);
+    is completely absorbed by ``disk_mask_radius=0.95``);
   * active-region detection uses a robust (MAD) threshold instead of a
     ``3*std`` computed on a distribution that already contains the active
     regions - a test that flags ~0.3% of any noise field by construction;
@@ -39,14 +39,14 @@ def disk_mask(shape, params, frac: float = 1.0) -> np.ndarray:
     return r2 <= rad ** 2
 
 
-def effective_radius_px(params, disk_exclusion_radius: float,
+def effective_radius_px(params, disk_mask_radius: float,
                         edge_exclusion_angle: float):
     """Which radial cut actually applies for the *fit sample*.
 
     Returns ``(radius_px, binding, edge_radius_px, disk_radius_px)`` where
     ``binding`` is ``'disk'``, ``'edge'`` or ``'equal'``.
     """
-    r_disk = float(params.radius) * float(disk_exclusion_radius)
+    r_disk = float(params.radius) * float(disk_mask_radius)
     r_edge = float(params.radius) * np.sin(np.radians(float(edge_exclusion_angle)))
     if r_edge < r_disk - 1e-9:
         binding = "edge"
@@ -57,10 +57,10 @@ def effective_radius_px(params, disk_exclusion_radius: float,
     return min(r_disk, r_edge), binding, r_edge, r_disk
 
 
-def effective_disk_mask(shape, params, disk_exclusion_radius: float,
+def effective_disk_mask(shape, params, disk_mask_radius: float,
                         edge_exclusion_angle: float) -> np.ndarray:
     """Intersection of the disk and edge cuts (equivalent to the tighter one)."""
-    rad, _, _, _ = effective_radius_px(params, disk_exclusion_radius,
+    rad, _, _, _ = effective_radius_px(params, disk_mask_radius,
                                        edge_exclusion_angle)
     return disk_mask(shape, params, frac=rad / float(params.radius))
 
@@ -92,7 +92,7 @@ def active_region_mask(velocity: np.ndarray, params, config,
     Legacy mode reproduces v1 exactly: ``|v - mean| > k*std`` over the disk.
     v2 mode uses median + 1.4826*MAD with iterative sigma clipping.
     """
-    m_disk = disk_mask(velocity.shape, params, frac=config.disk_exclusion_radius)
+    m_disk = disk_mask(velocity.shape, params, frac=config.disk_mask_radius)
     valid_sel = m_disk & np.isfinite(velocity)
     valid = velocity[valid_sel]
     if valid.size == 0:
@@ -100,7 +100,7 @@ def active_region_mask(velocity: np.ndarray, params, config,
         stats = {"threshold": 0.0, "location": 0.0, "scale": 0.0, "method": "none"}
         return (mask, stats) if return_stats else mask
 
-    if config.mad_threshold:
+    if config.active_region_robust_threshold:
         loc = float(np.median(valid))
         scale = 1.4826 * float(np.median(np.abs(valid - loc)))
         for _ in range(3):
@@ -125,7 +125,7 @@ def active_region_mask(velocity: np.ndarray, params, config,
         stats = {"threshold": 0.0, "location": loc, "scale": 0.0, "method": method}
         return (mask, stats) if return_stats else mask
 
-    threshold = float(config.activity_threshold_sigma) * scale
+    threshold = float(config.active_region_sigma_threshold) * scale
     mask = (np.abs(velocity - loc) > threshold) & m_disk
     mask &= np.isfinite(velocity)
 
@@ -134,15 +134,15 @@ def active_region_mask(velocity: np.ndarray, params, config,
     if num > 0:
         sizes = ndimage.sum(mask, labeled, range(num + 1))
         small = np.zeros(num + 1, dtype=bool)
-        small[1:] = sizes[1:] < config.min_activity_area
+        small[1:] = sizes[1:] < config.min_active_region_area
         if small.any():
             mask[small[labeled]] = False
-    if config.erosion_iterations > 0:
+    if config.active_region_shrink_steps > 0:
         mask = ndimage.binary_erosion(mask, structure=structure,
-                                      iterations=config.erosion_iterations)
-    if config.dilation_iterations > 0:
+                                      iterations=config.active_region_shrink_steps)
+    if config.active_region_grow_steps > 0:
         mask = ndimage.binary_dilation(mask, structure=structure,
-                                       iterations=config.dilation_iterations)
+                                       iterations=config.active_region_grow_steps)
     stats = {"threshold": threshold, "location": loc, "scale": scale,
              "method": method, "n_pixels": int(mask.sum())}
     return (mask, stats) if return_stats else mask

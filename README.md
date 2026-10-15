@@ -39,7 +39,7 @@ scv --input ... --output ... --rotation-amplitude rad_per_s
 from solar_chromosphere_velocity import Config, ChromosphereProcessor
 
 cfg = Config(input_dir="/data/level1", output_dir="/data/scv",
-             pattern="*_HA.fits", row_block=32)
+             pattern="*_HA.fits", spatial_strip_rows=32)
 results = ChromosphereProcessor(cfg).process_directory()
 for r in results:
     print(r.srcfile, r.fit.as_dict(), r.fit.rms_km_s)

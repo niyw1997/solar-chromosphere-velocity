@@ -197,9 +197,9 @@ def test_v_offset_is_a_pure_zero_point(tmp_path):
 def test_row_block_invariance(tmp_path):
     """Streaming block size must not change the answer."""
     a = Config(input_dir=os.path.dirname(VDOP), output_dir=str(tmp_path / "a"),
-               log_level="ERROR", row_block=32)
+               log_level="ERROR", spatial_strip_rows=32)
     b = Config(input_dir=os.path.dirname(VDOP), output_dir=str(tmp_path / "b"),
-               log_level="ERROR", row_block=256)
+               log_level="ERROR", spatial_strip_rows=256)
     ra = ChromosphereProcessor(a).process_file(VDOP)
     rb = ChromosphereProcessor(b).process_file(VDOP)
     for k in ("V_DIFFROT", "V_LIMB", "V_MERID", "V_OFFSET", "V_LARGE"):
@@ -309,7 +309,7 @@ def test_input_directory_untouched(tmp_path):
 @requires_vdop
 def test_excludes_own_outputs_by_default():
     cfg = Config(input_dir=os.path.dirname(VDOP), output_dir="/tmp/unused")
-    assert any("Vdop" in g for g in cfg.exclude_globs)
+    assert any("Vdop" in g for g in cfg.exclude_patterns)
 
 
 def test_config_legacy_resolution():
@@ -322,7 +322,7 @@ def test_config_legacy_resolution():
 
 def test_config_rejects_bad_values():
     with pytest.raises(ValueError):
-        Config(disk_exclusion_radius=0.0)
+        Config(disk_mask_radius=0.0)
     with pytest.raises(ValueError):
         Config(edge_exclusion_angle=95.0)
     with pytest.raises(ValueError):
@@ -336,9 +336,9 @@ def test_model_design_shapes():
                   cos_lon=np.array([0.95, 0.95]), rho_rad=np.array([0.5, 1.0]),
                   b0_rad=0.0)
     for ver in ("full-2.0", "legacy-1.0"):
-        X = VelocityModel(ver, n_limb=2.0).design(coords)
+        X = VelocityModel(ver, limb_exponent=2.0).design(coords)
         assert X.shape == (2, 8)
-    c = VelocityModel("full-2.0", n_limb=2.0).components(
+    c = VelocityModel("full-2.0", limb_exponent=2.0).components(
         coords, np.array([1.0, -0.1, -0.1, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0]))
     s = c["V_DIFFROT"] + c["V_LIMB"] + c["V_MERID"] + c["V_OFFSET"]
     assert np.allclose(s, c["V_LARGE"])
@@ -484,11 +484,11 @@ def test_fitparams_flags_unidentifiable_parameters(tmp_path):
         b0_rad=0.0,
     )
     from solar_chromosphere_velocity.models import VelocityModel
-    m = VelocityModel("full-2.0", n_limb=2.0)
+    m = VelocityModel("full-2.0", limb_exponent=2.0)
     # TERM_ORDER is (A,B,C,D,G,e,N,MC1,MC2); a negative e makes the >=0 bound bite
     truth = np.array([1.8, -0.17, -0.72, 0.01, -0.84, -0.50, 2.0, 0.03, -0.05])
     y = m.evaluate(coords, truth) + rng.normal(0, 0.9, n)
-    fit = fit_model(coords, y, n_limb_values=(1.0, 2.0, 5.0), limb_nonneg=True)
+    fit = fit_model(coords, y, limb_exponent_values=(1.0, 2.0, 5.0), limb_amplitude_positive=True)
     assert fit.limb_nonneg_active
     assert fit.flags.get("e") == "PINNED_AT_ZERO"
     assert "N" in fit.flags
@@ -558,7 +558,7 @@ def test_index_is_a_complete_inventory(tmp_path):
     # a file with a velocity name but unusable content
     (src / "bad_HA.fits").write_bytes(b"not a fits file at all")
     cfg = Config(input_dir=str(src), output_dir=str(tmp_path / "out"),
-                 pattern="*.fits", exclude_globs=(), log_level="ERROR")
+                 pattern="*.fits", exclude_patterns=(), log_level="ERROR")
     results = ChromosphereProcessor(cfg).process_directory()
     idx = tmp_path / "out" / "index.csv"
     assert idx.exists()
@@ -602,10 +602,10 @@ def test_n_is_always_flagged_scan_grid():
         rho_rad=rng.uniform(0, 1.2, n),
         b0_rad=0.0,
     )
-    m = VelocityModel("full-2.0", n_limb=2.0)
+    m = VelocityModel("full-2.0", limb_exponent=2.0)
     truth = np.array([1.8, -0.17, -0.72, 0.01, -0.84, 0.50, 2.0, 0.03, -0.05])
     y = m.evaluate(coords, truth) + rng.normal(0, 0.02, n)
-    fit = fit_model(coords, y, n_limb_values=(1.0, 2.0, 5.0), limb_nonneg=True)
+    fit = fit_model(coords, y, limb_exponent_values=(1.0, 2.0, 5.0), limb_amplitude_positive=True)
     assert not fit.limb_nonneg_active          # e is identifiable here
     assert fit.flags.get("N") == "SCAN_GRID"
     assert np.isnan(fit.errors[TERM_INDEX["N"]])
@@ -628,7 +628,7 @@ def test_insufficient_data_gets_exactly_one_index_row(tmp_path):
     d[3, 3] = 0.0
     fits.PrimaryHDU(d, header=h).writeto(src / "tiny_HA_Vdop.fits")
     cfg = Config(input_dir=str(src), output_dir=str(tmp_path / "out"),
-                 pattern="*.fits", exclude_globs=(), log_level="ERROR")
+                 pattern="*.fits", exclude_patterns=(), log_level="ERROR")
     results = ChromosphereProcessor(cfg).process_directory()
     assert [r.status for r in results] == ["INSUFFICIENT_DATA"]
     lines = [l for l in (tmp_path / "out" / "index.csv").read_text().strip().splitlines() if l]

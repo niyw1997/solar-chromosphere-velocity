@@ -39,43 +39,43 @@ class Config:
     input_dir: str = ""
     output_dir: str = ""
     pattern: str = "*.fits"
-    exclude_globs: Tuple[str, ...] = ("*_Vdop*", "*_residual*", "*_scv*")
+    exclude_patterns: Tuple[str, ...] = ("*_Vdop*", "*_residual*", "*_scv*")
     overwrite: bool = False
-    flat_output: bool = False
-    write_index: bool = True
-    compress_output: bool = False
+    no_day_subdirectory: bool = False
+    write_observation_log: bool = True
+    rice_compression: bool = False
     require_velocity_unit: bool = True     # refuse 2-D inputs without a velocity BUNIT
 
     # --- physics / model --------------------------------------------------
     legacy: bool = False
     rotation_amplitude: str = "kms"        # 'kms' | 'rad_per_s'
-    n_limb: Optional[float] = None         # None -> scan
-    n_limb_scan: Sequence[float] = (1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0)
-    limb_nonneg: bool = True
+    limb_exponent: Optional[float] = None         # None -> scan
+    limb_exponent_scan: Sequence[float] = (1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0)
+    limb_amplitude_positive: bool = True
     zero_point_km_s: float = 0.0
 
     # --- Doppler inversion ------------------------------------------------
-    window_half: int = 10
-    profile_mask_radius: float = 100.0
-    demean_window: Optional[bool] = None   # None -> not legacy
-    clip_subpixel: Optional[bool] = None   # None -> not legacy
-    line_center_min_len: int = 90          # legacy fallback threshold
+    correlation_half_width: int = 10
+    reference_profile_radius: float = 100.0
+    continuum_subtraction: Optional[bool] = None   # None -> not legacy
+    limit_subpixel_shift: Optional[bool] = None   # None -> not legacy
+    min_spectral_samples: int = 90          # legacy fallback threshold
 
     # --- masks ------------------------------------------------------------
-    disk_exclusion_radius: float = 0.95
+    disk_mask_radius: float = 0.95
     edge_exclusion_angle: float = 80.0
-    activity_threshold_sigma: float = 3.0
-    use_mad: Optional[bool] = None         # None -> not legacy
-    min_activity_area: int = 100
-    dilation_iterations: int = 3
-    erosion_iterations: int = 1
+    active_region_sigma_threshold: float = 3.0
+    active_region_robust_sigma: Optional[bool] = None         # None -> not legacy
+    min_active_region_area: int = 100
+    active_region_grow_steps: int = 3
+    active_region_shrink_steps: int = 1
 
     # --- performance ------------------------------------------------------
     # 32 rows/block measured fastest AND leanest on a 2313x2304 RICE cube
     # (8.1 s inversion, 0.94 GB peak) versus 64/128/256/512 rows.
-    row_block: int = 32
-    n_workers: int = 1
-    use_multiprocessing: bool = False
+    spatial_strip_rows: int = 32
+    parallel_processes: int = 1
+    parallel_processing: bool = False
 
     # --- plots / logging --------------------------------------------------
     visualize: bool = False
@@ -92,16 +92,16 @@ class Config:
     def __post_init__(self):
         if self.rotation_amplitude not in ("kms", "rad_per_s"):
             raise ValueError("rotation_amplitude must be 'kms' or 'rad_per_s'")
-        if not (0.0 < self.disk_exclusion_radius <= 1.0):
-            raise ValueError("disk_exclusion_radius must be in (0, 1]")
+        if not (0.0 < self.disk_mask_radius <= 1.0):
+            raise ValueError("disk_mask_radius must be in (0, 1]")
         if not (0.0 < self.edge_exclusion_angle < 90.0):
             raise ValueError("edge_exclusion_angle must be in (0, 90)")
-        if self.window_half < 2:
-            raise ValueError("window_half must be >= 2")
-        if self.row_block < 1:
-            raise ValueError("row_block must be >= 1")
-        if self.n_workers < 1:
-            raise ValueError("n_workers must be >= 1")
+        if self.correlation_half_width < 2:
+            raise ValueError("correlation_half_width must be >= 2")
+        if self.spatial_strip_rows < 1:
+            raise ValueError("spatial_strip_rows must be >= 1")
+        if self.parallel_processes < 1:
+            raise ValueError("parallel_processes must be >= 1")
         if self.input_dir and not os.path.isdir(self.input_dir):
             raise ValueError("input_dir does not exist: %s" % self.input_dir)
         if self.legacy and self.zero_point_km_s != 0.0:
@@ -116,25 +116,25 @@ class Config:
 
     @property
     def demean(self) -> bool:
-        return (not self.legacy) if self.demean_window is None else bool(self.demean_window)
+        return (not self.legacy) if self.continuum_subtraction is None else bool(self.continuum_subtraction)
 
     @property
-    def clip_subpixel_on(self) -> bool:
-        return (not self.legacy) if self.clip_subpixel is None else bool(self.clip_subpixel)
+    def limit_subpixel_shift_on(self) -> bool:
+        return (not self.legacy) if self.limit_subpixel_shift is None else bool(self.limit_subpixel_shift)
 
     @property
-    def mad_threshold(self) -> bool:
-        return (not self.legacy) if self.use_mad is None else bool(self.use_mad)
+    def active_region_robust_threshold(self) -> bool:
+        return (not self.legacy) if self.active_region_robust_sigma is None else bool(self.active_region_robust_sigma)
 
     @property
     def zero_point(self) -> float:
         return LEGACY_ZERO_POINT_KM_S if self.legacy else float(self.zero_point_km_s)
 
     @property
-    def n_limb_values(self) -> Tuple[float, ...]:
-        if self.n_limb is not None:
-            return (float(self.n_limb),)
-        return tuple(float(x) for x in self.n_limb_scan)
+    def limb_exponent_values(self) -> Tuple[float, ...]:
+        if self.limb_exponent is not None:
+            return (float(self.limb_exponent),)
+        return tuple(float(x) for x in self.limb_exponent_scan)
 
     @property
     def use_rotation_radius(self) -> bool:
@@ -173,12 +173,12 @@ _V1_MAP = {
     "visualize_steps": ("visualize", None),
     "gravitational_redshift": ("zero_point_km_s", lambda v: float(v) / 1000.0),
     "overwrite_existing": ("overwrite", None),
-    "use_multiprocessing": ("use_multiprocessing", None),
-    "n_workers": ("n_workers", None),
-    "activity_threshold_sigma": ("activity_threshold_sigma", None),
-    "min_activity_area": ("min_activity_area", None),
+    "use_multiprocessing": ("parallel_processing", None),
+    "n_workers": ("parallel_processes", None),
+    "activity_threshold_sigma": ("active_region_sigma_threshold", None),
+    "min_activity_area": ("min_active_region_area", None),
     "edge_exclusion_angle": ("edge_exclusion_angle", None),
-    "disk_exclusion_radius": ("disk_exclusion_radius", None),
+    "disk_exclusion_radius": ("disk_mask_radius", None),
     "plot_dpi": ("plot_dpi", None),
     "plot_format": ("plot_format", None),
     "colormap": ("colormap", None),

@@ -62,33 +62,37 @@ def build_parser(prog: str = "scv", legacy_default: bool = False):
     mod.add_argument("--rotation-amplitude", choices=["kms", "rad_per_s"],
                      default="kms",
                      help="units of A,B,C,D (rad_per_s multiplies by R_sun)")
-    mod.add_argument("--n-limb", type=float, default=None,
-                     help="fix the limb exponent N (default: scan)")
+    mod.add_argument("--limb-exponent", type=float, default=None,
+                     help="fix the limb exponent N (default: scan the grid)")
     mod.add_argument("--allow-negative-limb", action="store_true",
                      help="do not pin the limb amplitude e to >= 0")
     mod.add_argument("--zero-point", type=float, default=0.0,
                      help="constant subtracted from VLOS_OBS (km/s)")
 
     inv = p.add_argument_group("inversion")
-    inv.add_argument("--window-half", type=int, default=10)
-    inv.add_argument("--profile-radius", type=float, default=100.0,
-                     help="radius of the disk-centre averaging mask (pixels)")
+    inv.add_argument("--correlation-half-width", type=int, default=10,
+                     help="half width of the cross-correlation window (pixels)")
+    inv.add_argument("--reference-profile-radius", type=float, default=100.0,
+                     help="radius of the quiet-Sun mask used for the reference profile (pixels)")
     inv.add_argument("--no-unit-check", action="store_true",
                      help="accept 2-D inputs whose BUNIT is not a velocity")
     inv.add_argument("--raw-correlation", action="store_true",
                      help="do not mean-subtract the correlation windows")
 
     msk = p.add_argument_group("masks")
-    msk.add_argument("--disk-exclusion", type=float, default=0.95)
+    msk.add_argument("--disk-mask-radius", type=float, default=0.95,
+                     help="mask everything beyond this fraction of R_sun")
     msk.add_argument("--edge-angle", type=float, default=80.0)
-    msk.add_argument("--activity-threshold", type=float, default=3.0)
-    msk.add_argument("--min-area", type=int, default=100)
+    msk.add_argument("--active-region-sigma", type=float, default=3.0,
+                     help="threshold in sigma for active-region detection")
+    msk.add_argument("--min-active-region-area", type=int, default=100,
+                     help="minimum area (pixels) of a detected active region")
     msk.add_argument("--sigma-clip", action="store_true",
                      help="use mean/std instead of the robust MAD threshold")
 
     perf = p.add_argument_group("performance")
-    perf.add_argument("--row-block", type=int, default=32,
-                      help="rows per streaming block")
+    perf.add_argument("--spatial-strip-rows", type=int, default=32,
+                      help="detector rows per streaming strip")
     perf.add_argument("--workers", "-w", type=int, default=1,
                       help="reserved; v2 is fast enough single-process")
 
@@ -161,35 +165,35 @@ def config_from_args(args) -> Config:
         pattern=args.pattern,
         legacy=bool(args.legacy),
         rotation_amplitude=args.rotation_amplitude,
-        n_limb=args.n_limb,
-        limb_nonneg=not args.allow_negative_limb,
+        limb_exponent=args.limb_exponent,
+        limb_amplitude_positive=not args.allow_negative_limb,
         zero_point_km_s=args.zero_point,
-        window_half=args.window_half,
-        profile_mask_radius=args.profile_radius,
+        correlation_half_width=args.correlation_half_width,
+        reference_profile_radius=args.reference_profile_radius,
         require_velocity_unit=not args.no_unit_check,
-        demean_window=False if args.raw_correlation else None,
-        disk_exclusion_radius=args.disk_exclusion,
+        continuum_subtraction=False if args.raw_correlation else None,
+        disk_mask_radius=args.disk_mask_radius,
         edge_exclusion_angle=args.edge_angle,
-        activity_threshold_sigma=args.activity_threshold,
-        min_activity_area=args.min_area,
-        use_mad=False if args.sigma_clip else None,
-        row_block=args.row_block,
-        n_workers=args.workers,
+        active_region_sigma_threshold=args.active_region_sigma,
+        min_active_region_area=args.min_active_region_area,
+        active_region_robust_sigma=False if args.sigma_clip else None,
+        spatial_strip_rows=args.spatial_strip_rows,
+        parallel_processes=args.workers,
         visualize=args.visualize,
         plot_dpi=args.plot_dpi,
         plot_format=args.plot_format,
         plot_panels=tuple(args.plot_panels) if args.plot_panels else None,
         plot_per_component=args.plot_per_component,
         plot_overlay_mask=args.plot_overlay_mask,
-        compress_output=args.compress,
-        flat_output=args.flat,
+        rice_compression=args.compress,
+        no_day_subdirectory=args.flat,
         overwrite=args.overwrite,
-        write_index=not args.no_index,
+        write_observation_log=not args.no_index,
         log_level=args.log_level,
         log_file=args.log_file,
     )
     if args.exclude:
-        kw["exclude_globs"] = tuple(args.exclude)
+        kw["exclude_patterns"] = tuple(args.exclude)
     if args.config:
         with open(args.config) as fh:
             kw.update(json.load(fh))
@@ -224,7 +228,7 @@ def main(argv=None):
             if r.fit is not None:
                 print("%-44s -> %s  RMS=%.4f km/s  N=%.2f  V_OFFSET=%+.4f km/s"
                       % (r.srcfile, os.path.basename(r.outfile or "-"),
-                         r.fit.rms_km_s, r.fit.n_limb, r.fit.params[4]))
+                         r.fit.rms_km_s, r.fit.limb_exponent, r.fit.params[4]))
             else:
                 print("%-44s -> %s (%s: %s)"
                       % (r.srcfile, r.outfile or "-", r.status, r.message))

@@ -107,7 +107,7 @@ def _legacy_center(profile: np.ndarray, min_len: int) -> LineCenter:
 
 def fit_line_center(profile: np.ndarray, params=None, *, legacy: bool = False,
                     min_len: int = 90, rest=None,
-                    window_half: Optional[int] = None) -> LineCenter:
+                    correlation_half_width: Optional[int] = None) -> LineCenter:
     """Locate the absorption line centre of an average profile."""
     profile = np.asarray(profile, dtype=np.float64)
     n = len(profile)
@@ -119,7 +119,7 @@ def fit_line_center(profile: np.ndarray, params=None, *, legacy: bool = False,
 
     guess = wcs_line_center(params, rest=rest)
     # search half-width: shrink automatically for short profiles
-    half = window_half if window_half is not None else max(4, min(45, n // 4))
+    half = correlation_half_width if correlation_half_width is not None else max(4, min(45, n // 4))
     i_glob = int(np.argmin(profile))
     i_min = i_glob
     if guess is not None and np.isfinite(guess):
