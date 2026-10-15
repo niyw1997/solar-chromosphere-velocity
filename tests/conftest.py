@@ -10,18 +10,16 @@ import os
 
 import pytest
 
-DATA = os.environ.get("SCV_TEST_DATA",
-                      "/Users/niyw/sci/DSH/workspace1/scv_study/input")
+# No machine-specific defaults: point the environment variables at your data.
+# When a variable is unset the path is empty, os.path.exists() is False, and the
+# tests that need that file are skipped rather than failed.
+DATA = os.environ.get("SCV_TEST_DATA", "")
+FE_DIR = os.environ.get("SCV_TEST_FE", "")
+UNCOMPRESSED = os.environ.get("SCV_TEST_UNCOMPRESSED", "")
 
-HA_RICE = os.path.join(DATA, "RSM20260424T080829_0016_HA.fits")
-VDOP = os.path.join(DATA, "RSM20260424T080829_0016_HA_Vdop.fits")
-FE_RICE = os.environ.get(
-    "SCV_TEST_FE",
-    "/Users/niyw/sci/chase/2025_11_11/data/FE/RSM20251111T095427_0002_FE.fits")
-UNCOMPRESSED = os.environ.get(
-    "SCV_TEST_UNCOMPRESSED",
-    "/Users/niyw/sci/chase/event/20260424/processed_data/"
-    "processed_RSM20260424T074933_0000_HA.fits")
+HA_RICE = os.path.join(DATA, "RSM20260424T080829_0016_HA.fits") if DATA else ""
+VDOP = os.path.join(DATA, "RSM20260424T080829_0016_HA_Vdop.fits") if DATA else ""
+FE_RICE = FE_DIR if FE_DIR else ""
 
 # v1 parameter file archived for RSM20260424T080829_0016_HA_Vdop.fits
 V1_PARAMS = dict(A=1.797406, B=-0.165739, C=-0.720372, D=0.006673,

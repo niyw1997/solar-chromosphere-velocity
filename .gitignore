@@ -161,3 +161,15 @@ processed/
 # v2 outputs
 v2_out*/
 *.csv
+
+# LaTeX build products (docs/theory.pdf is committed on purpose)
+*.aux
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.xdv

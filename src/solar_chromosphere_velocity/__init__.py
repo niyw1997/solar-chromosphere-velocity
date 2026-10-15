@@ -13,7 +13,7 @@ Major changes vs v1.0.1
   circulation) with ``legacy=True`` to reproduce v1 exactly.
 """
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 __author__ = "Solar Physics Team"
 
 from .config import (
