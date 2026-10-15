@@ -657,3 +657,58 @@ def test_stale_nscan_from_the_input_header_is_not_copied(tmp_path):
     write_multihdu(path, _fake_layers(), src, None, {})
     with fits.open(path) as h:
         assert "NSCAN" not in h[0].header
+
+
+def test_figures_take_their_axes_from_the_written_header(tmp_path, monkeypatch):
+    """The pipeline plots from an in-memory dict; it must still get arcsec axes.
+
+    Regression: _resolve() returned header=None for a dict, so the figures the
+    pipeline wrote had pixel axes while the same layers plotted from the
+    written FITS had arcsec axes.
+    """
+    pytest.importorskip("matplotlib")
+    from matplotlib.figure import Figure
+    from solar_chromosphere_velocity import plot_layers
+
+    labels = {}
+    orig = Figure.savefig
+
+    def spy(self, *a, **k):
+        labels["x"] = [ax.get_xlabel() for ax in self.axes]
+        return orig(self, *a, **k)
+
+    monkeypatch.setattr(Figure, "savefig", spy)
+    hdr = {"CDELT1": 1.04, "CDELT2": 1.04, "CX": 32.0, "CY": 24.0}
+    layers = {"V_RESID": np.zeros((48, 64), np.float32)}
+
+    plot_layers(layers, str(tmp_path / "with.png"), panels=["V_RESID"], header=hdr)
+    assert "x [arcsec]" in labels["x"], labels["x"]
+
+    plot_layers(layers, str(tmp_path / "without.png"), panels=["V_RESID"])
+    assert "x [pixel]" in labels["x"], labels["x"]
+
+
+def test_plot_header_carries_the_geometry_keys():
+    from solar_chromosphere_velocity import ChromosphereProcessor
+    h = ChromosphereProcessor._plot_header(
+        {"CDELT1": 1.04, "CDELT2": 1.04, "CX": 1191.6, "CY": 1154.9,
+         "OBSTIME": ("20260424T080829", "obs time")},
+        None)
+    for k in ("CDELT1", "CDELT2", "CX", "CY"):
+        assert k in h, k
+    assert h["OBSTIME"] == "20260424T080829"
+
+
+def test_write_component_figures_accepts_a_header(tmp_path):
+    """Regression: header was passed explicitly AND via **kwargs -> TypeError,
+    which the never-fatal plotting handler swallowed, silently dropping the six
+    per-component figures (9 figures became 3)."""
+    pytest.importorskip("matplotlib")
+    from solar_chromosphere_velocity import write_component_figures
+    from solar_chromosphere_velocity.plotting import COMPONENT_PANELS
+    hdr = {"CDELT1": 1.04, "CDELT2": 1.04, "CX": 32.0, "CY": 24.0}
+    figs = write_component_figures(_fake_layers(), str(tmp_path / "c"),
+                                   header=hdr, dpi=50)
+    assert set(figs) == set(COMPONENT_PANELS), sorted(figs)
+    for path in figs.values():
+        assert os.path.exists(path) and os.path.getsize(path) > 3000

@@ -85,8 +85,13 @@ def colormap(name):
         return cm.get_cmap(name)
 
 
-def _resolve(layers) -> Tuple[Dict[str, np.ndarray], Optional[object]]:
-    """Accept a dict of arrays or the path of a v2 multi-extension FITS."""
+def _resolve(layers, header=None) -> Tuple[Dict[str, np.ndarray], Optional[object]]:
+    """Accept a dict of arrays or the path of a v2 multi-extension FITS.
+
+    When a dict is given, ``header`` supplies the metadata used for the axes
+    (CDELT1/CDELT2/CX/CY).  The pipeline passes the header it just wrote, so the
+    in-memory and from-file paths produce identical axes.
+    """
     if isinstance(layers, (str, bytes, os.PathLike)):
         from astropy.io import fits
         with fits.open(layers) as h:
@@ -97,7 +102,7 @@ def _resolve(layers) -> Tuple[Dict[str, np.ndarray], Optional[object]]:
                 if name and hd.data is not None and hd.data.ndim == 2:
                     out[name] = np.asarray(hd.data)
         return out, header
-    return dict(layers), None
+    return dict(layers), header
 
 
 def _extent_arcsec(header, shape):
@@ -192,7 +197,8 @@ def plot_layers(layers: Union[Dict[str, np.ndarray], str], outfile: str, *,
                 vmax: Optional[float] = None, overlay_mask: bool = False,
                 title: Optional[str] = None,
                 panel_size: Tuple[float, float] = (4.6, 4.2),
-                show_colorbar: bool = True) -> str:
+                show_colorbar: bool = True,
+                header=None) -> str:
     """Draw the requested velocity components as subplots of one figure.
 
     Parameters
@@ -208,7 +214,7 @@ def plot_layers(layers: Union[Dict[str, np.ndarray], str], outfile: str, *,
     Returns the path of the written figure.
     """
     _, plt = _require_mpl()
-    data, header = _resolve(layers)
+    data, header = _resolve(layers, header)
     if panels is None:
         panels = [p for p in PANEL_ORDER if p in data]
     panels = [p for p in panels if p in data]
@@ -255,10 +261,10 @@ def plot_components(layers, outfile: str, **kwargs) -> str:
     return plot_layers(layers, outfile, panels=COMPONENT_PANELS, **kwargs)
 
 
-def plot_summary(layers, outfile: str, dpi: int = 150, **kwargs) -> str:
+def plot_summary(layers, outfile: str, dpi: int = 150, header=None, **kwargs) -> str:
     """2x3 overview: data, model total, residual, histogram, mask, 1-sigma."""
     _, plt = _require_mpl()
-    data, header = _resolve(layers)
+    data, header = _resolve(layers, header)
     fig, axes = plt.subplots(2, 3, dpi=dpi, figsize=(14.4, 8.6))
     axes = axes.ravel()
 
@@ -314,7 +320,9 @@ def write_component_figures(layers, base_path: str,
 
     Returns a mapping layer -> path.
     """
-    data, _ = _resolve(layers)
+    # caller may pass header=... through **kwargs; must not be duplicated below
+    header = kwargs.pop("header", None)
+    data, header = _resolve(layers, header)
     if panels is None:
         panels = [p for p in COMPONENT_PANELS if p in data]
     out = {}
@@ -323,7 +331,7 @@ def write_component_figures(layers, base_path: str,
         if name not in data:
             continue
         out[name] = plot_layers(data, "%s_%s.png" % (base, name), panels=[name],
-                                ncols=1, **kwargs)
+                                ncols=1, header=header, **kwargs)
     return out
 
 
