@@ -8,7 +8,9 @@ astropy exposes as a ``CompImageHDU``.  Touching ``hdu.data`` on such an HDU
 decompresses **the whole cube** (measured: 5.53 s, 1.60 GB RSS), which is what
 v1 did before ``.astype(float32)`` doubled it to 2.5 GB.
 
-``hdu.section[...]`` decodes only the requested tiles (measured: 0.20 s, 3.8 MB)
+``hdu.section[...]`` decodes only the requested tiles (measured: 0.2 s, a few MB
+for a small window; the full array costs ~0.9-1.6 GB and 5-8 s depending on how
+it is measured)
 and was verified to return bit-identical values to a full-array slice for
 RICE 118-layer, RICE 46-layer *and* uncompressed 21-layer files.
 
@@ -18,6 +20,7 @@ Rules honoured here:
   * ``NAXIS3`` may be 118 / 46 / 21 - nothing is hard-coded to 118.
 """
 
+import logging
 import os
 import re
 import warnings
@@ -28,6 +31,8 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 from astropy.io import fits
 from astropy.io.fits.verify import VerifyWarning
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "DataType",
@@ -310,20 +315,63 @@ class SpectralCube:
         return False
 
 
-def open_plane(path: str, ext: Optional[int] = None):
-    """Open a 2-D map (Doppler product / residual). Returns (data, header)."""
+#: recognised BUNIT spellings -> factor to km/s
+_VELOCITY_UNITS = {
+    "KM/S": 1.0, "KMS-1": 1.0, "KM S-1": 1.0, "KM/SEC": 1.0, "KMS": 1.0,
+    "M/S": 1e-3, "MS-1": 1e-3, "M S-1": 1e-3, "M/SEC": 1e-3,
+}
+
+
+def velocity_unit_factor(bunit: str):
+    """Factor converting ``bunit`` to km/s, or None if it is not a velocity."""
+    if not bunit:
+        return None
+    key = str(bunit).strip().upper().replace(" ", "")
+    if key in _VELOCITY_UNITS:
+        return _VELOCITY_UNITS[key]
+    for k, v in _VELOCITY_UNITS.items():
+        if k.replace(" ", "") == key:
+            return v
+    return None
+
+
+def open_plane(path: str, ext: Optional[int] = None, require_unit: bool = True):
+    """Open a 2-D velocity map.  Returns ``(data_km_s, header)``.
+
+    Two deliberate guards:
+
+    * the HDU is located via ``.shape`` - touching ``.data`` on every HDU would
+      decompress a compressed cube just to look at it;
+    * ``BUNIT`` is honoured (m/s is converted) and an unrecognised or missing
+      unit is refused, because a raw intensity map mis-named ``*_Vdop.fits``
+      would otherwise be fitted as if it were km/s and produce a plausible but
+      meaningless product.
+    """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", VerifyWarning)
         with fits.open(path, **_OPEN_KW) as hdul:
             idx = ext
             if idx is None:
                 for i, hdu in enumerate(hdul):
-                    if hdu.data is not None and hdu.data.ndim == 2:
+                    shp = getattr(hdu, "shape", None)
+                    if shp is not None and len(shp) == 2 and int(np.prod(shp)) > 0:
                         idx = i
                         break
             if idx is None:
                 raise ValueError("no 2-D image found in %s" % path)
             hdu = hdul[idx]
-            data = np.asarray(hdu.data, dtype=np.float32)
             header = hdu.header.copy()
+            bunit = str(header.get("BUNIT", ""))
+            data = np.asarray(hdu.data, dtype=np.float32)
+    factor = velocity_unit_factor(bunit)
+    if factor is None:
+        msg = ("%s: BUNIT=%r is not a recognised velocity unit; refusing to "
+               "treat this 2-D map as km/s" % (os.path.basename(path), bunit))
+        if require_unit:
+            raise ValueError(msg)
+        logger.warning(msg)
+    elif factor != 1.0:
+        data = (data * factor).astype(np.float32, copy=False)
+        logger.info("%s: converted BUNIT=%s to km/s (x%g)",
+                    os.path.basename(path), bunit, factor)
     return data, header

@@ -23,7 +23,9 @@ Complete rewrite of the processing core.  `--legacy` reproduces v1.0.1 results.
 - **Complete physics**: rotation term scaled by R_sun and projected with
   `cos B0`; meridional circulation projected on the line of sight.
   `--rotation-amplitude rad_per_s` reports A,B,C,D as angular rates.
-- `--legacy` regression mode, `process-chase` compatibility entry point,
+- `--legacy` regression mode (it reproduces the **identifiable** v1.0.1
+  parameters; `e` and `N` are degenerate and are reported as flagged/NaN
+  instead), `process-chase` compatibility entry point,
   `V_MODEL_ERR` (per-pixel model uncertainty), per-layer masks, `index.csv`.
 
 ### Changed
@@ -49,6 +51,25 @@ Complete rewrite of the processing core.  `--legacy` reproduces v1.0.1 results.
 
 ### Fixed
 
+- A 2-D input whose `BUNIT` is not a velocity is now refused instead of being
+  fitted as if it were km/s - previously a raw intensity map mis-named
+  `*_Vdop.fits` produced a plausible-looking but meaningless product.  `m/s`
+  is converted to km/s.
+- `open_plane` located its HDU with `hdu.data`, which decompresses a compressed
+  cube; it now uses `hdu.shape`.
+- `PRIMARY` contained up to 38 duplicated keywords (the input header and our
+  own cards overlap, and the card loop had been written twice), including a
+  conflicting `INST_ROT`.  Duplicates are now collapsed, keeping ours.
+- `e` and `N` were published with `ERROR = 0`, i.e. as perfectly measured, even
+  when `e` was pinned to its bound and `N` had no effect on the model.  They are
+  now flagged and carry `NaN` errors.
+- `NSCAN` truncated the scan mid-number at 50 characters; it is now split
+  across `NSCAN`, `NSCAN2`, ... without cutting a value.
+- `index.csv` did not record files that failed before the fit stage; it is now
+  a complete inventory.
+- `UNITSYS` and `INVMETH` are written (the docs had promised them all along),
+  and the `FITPARAMS` unit column follows `--rotation-amplitude rad_per_s`
+  instead of always claiming km/s.
 - **Outputs are never written next to the inputs.**  v1 derived the
   intermediate Doppler product from `input_path.parent` with `overwrite=True`,
   which silently destroyed the official `*_HA_Vdop.fits` level-1 products.

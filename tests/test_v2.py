@@ -443,3 +443,125 @@ def test_pipeline_writes_figures(tmp_path):
         assert os.path.exists(res.figures[key]), key
         assert os.path.getsize(res.figures[key]) > 3000
     assert res.figures["layers"].startswith(os.path.splitext(res.outfile)[0])
+
+
+# ------------------------------------------- regressions from the v2 review
+def test_primary_header_has_no_duplicate_keywords(tmp_path):
+    """The input header and our cards overlap; PRIMARY must be unambiguous."""
+    from astropy.io import fits
+    from solar_chromosphere_velocity.output import write_multihdu
+    layers = _fake_layers()
+    src = fits.Header()
+    src["B0"] = -4.84          # also written by base_cards
+    src["INST_ROT"] = 0        # int here, float in base_cards -> conflicting
+    src["CDELT1"] = 1.04
+    src["CRPIX1"] = 32.0
+    src["COMMENT"] = "a legitimate repeat"
+    cards = {"B0": -4.8395, "INST_ROT": 0.0, "CDELT1": 1.04, "CX": 32.0}
+    path = str(tmp_path / "dup.fits")
+    write_multihdu(path, layers, src, None, cards)
+    with fits.open(path) as h:
+        keys = [c.keyword for c in h[0].header.cards]
+        dups = {k for k in keys if keys.count(k) > 1 and k not in ("COMMENT", "HISTORY")}
+        assert not dups, dups
+        assert h[0].header["INST_ROT"] == 0.0        # ours wins
+        assert h[0].header["B0"] == pytest.approx(-4.8395)
+
+
+def test_fitparams_flags_unidentifiable_parameters(tmp_path):
+    """e (pinned) and N (degenerate) must be flagged, not reported as +/-0."""
+    from solar_chromosphere_velocity.models import NormalEquations, fit_model
+    # construct a sample where e wants to be negative -> the >=0 bound is active
+    rng = np.random.default_rng(5)
+    n = 4000
+    coords = dict(
+        sin_lat=rng.uniform(-0.8, 0.8, n),
+        sin_2lat=rng.uniform(-1, 1, n),
+        cos_lat=rng.uniform(0.6, 1.0, n),
+        sin_lon=rng.uniform(-1, 1, n),
+        cos_lon=rng.uniform(-1, 1, n),
+        rho_rad=rng.uniform(0, 1.2, n),
+        b0_rad=0.0,
+    )
+    from solar_chromosphere_velocity.models import VelocityModel
+    m = VelocityModel("full-2.0", n_limb=2.0)
+    # TERM_ORDER is (A,B,C,D,G,e,N,MC1,MC2); a negative e makes the >=0 bound bite
+    truth = np.array([1.8, -0.17, -0.72, 0.01, -0.84, -0.50, 2.0, 0.03, -0.05])
+    y = m.evaluate(coords, truth) + rng.normal(0, 0.9, n)
+    fit = fit_model(coords, y, n_limb_values=(1.0, 2.0, 5.0), limb_nonneg=True)
+    assert fit.limb_nonneg_active
+    assert fit.flags.get("e") == "PINNED_AT_ZERO"
+    assert "N" in fit.flags
+    assert np.isnan(fit.errors[TERM_INDEX["e"]])
+    assert np.isnan(fit.errors[TERM_INDEX["N"]])
+    assert not np.isnan(fit.errors[TERM_INDEX["A"]])
+    cards = fit.header_cards()
+    assert "ERR_e" not in cards and "ERR_N" not in cards
+    assert "ERR_A" in cards and "FITFLAG" in cards
+
+
+TERM_INDEX = {"A": 0, "B": 1, "C": 2, "D": 3, "G": 4, "e": 5, "N": 6,
+              "MC1": 7, "MC2": 8}
+
+
+def test_open_plane_refuses_non_velocity_units(tmp_path):
+    """A raw intensity map mis-named *_Vdop.fits must not be fitted as km/s."""
+    from astropy.io import fits
+    from solar_chromosphere_velocity.data_loader import open_plane
+    p = str(tmp_path / "junk_Vdop.fits")
+    fits.PrimaryHDU(np.ones((8, 8), dtype=np.float32)).writeto(p)
+    with pytest.raises(ValueError):
+        open_plane(p)
+    data, _ = open_plane(p, require_unit=False)      # opt out
+    assert data.shape == (8, 8)
+
+
+def test_open_plane_converts_ms_to_kms(tmp_path):
+    from astropy.io import fits
+    from solar_chromosphere_velocity.data_loader import open_plane
+    p = str(tmp_path / "v_Vdop.fits")
+    h = fits.Header()
+    h["BUNIT"] = "m/s"
+    fits.PrimaryHDU(np.full((4, 4), 1500.0, dtype=np.float32), header=h).writeto(p)
+    data, _ = open_plane(p)
+    assert data[0, 0] == pytest.approx(1.5)
+
+
+def test_open_plane_does_not_decompress(tmp_path):
+    """Locating the plane must use .shape, never .data."""
+    import resource
+    from solar_chromosphere_velocity.data_loader import open_plane
+    if not os.path.exists(HA_RICE):
+        pytest.skip("no RICE file")
+    before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    try:
+        open_plane(HA_RICE, require_unit=False)
+    except Exception:
+        pass
+    growth_mb = (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss - before) / 1e3
+    if growth_mb < 0:            # Linux reports kB, macOS bytes
+        growth_mb = (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss - before) / 1e6
+    assert growth_mb < 300, "open_plane decompressed something (%.0f)" % growth_mb
+
+
+@requires_vdop
+def test_index_is_a_complete_inventory(tmp_path):
+    """Failures must still appear in index.csv."""
+    import shutil
+    from astropy.io import fits
+    src = tmp_path / "in"
+    src.mkdir()
+    shutil.copy2(VDOP, src / "good_HA_Vdop.fits")
+    # NB: the default exclude globs drop *_Vdop*; pass an empty set so both
+    # files are attempted and the inventory can be checked
+
+    # a file with a velocity name but unusable content
+    (src / "bad_HA.fits").write_bytes(b"not a fits file at all")
+    cfg = Config(input_dir=str(src), output_dir=str(tmp_path / "out"),
+                 pattern="*.fits", exclude_globs=(), log_level="ERROR")
+    results = ChromosphereProcessor(cfg).process_directory()
+    idx = tmp_path / "out" / "index.csv"
+    assert idx.exists()
+    lines = [l for l in idx.read_text().strip().splitlines() if l]
+    assert len(lines) - 1 == len(results) == 2, (lines, [r.status for r in results])
+    assert any("FAILED" in l for l in lines)

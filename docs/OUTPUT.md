@@ -32,7 +32,19 @@
 | 8 | `V_RESID` | `VLOS_CORR - V_LARGE`, quiet-Sun mean removed | km/s |
 | 9 | `V_MODEL_ERR` | 1-sigma uncertainty of the model surface | km/s |
 | 10 | `MASK_ACTIVE` | 0 = quiet Sun, 1 = active region | — |
-| 11 | `FITPARAMS` | 9 parameters + errors + covariance-derived sigma | mixed |
+| 11 | `FITPARAMS` | 9 parameters + errors + a `FLAG` column | mixed |
+
+`FITPARAMS` columns are NAME, VALUE, ERROR, UNIT, COMPONENT, FORMULA,
+DESCRIPTION, FLAG.  A parameter that is **not identifiable** (the limb
+amplitude `e` pinned to its `>= 0` bound, and `N`, which the model does not
+depend on once `e = 0`) gets `ERROR = NaN` and a `FLAG` such as
+`PINNED_AT_ZERO`, `DEGENERATE_WITH_E` or `FLAT_SCAN`.  It deliberately gets no
+`ERR_*` card in `PRIMARY` either: writing `0.0` there would read as a perfectly
+measured value.  `PRIMARY` carries `FITFLAG` listing them.
+
+`BUNIT` is honoured: a 2-D map with `BUNIT='m/s'` is converted to km/s, and a
+2-D map with an unrecognised or missing `BUNIT` is **refused** rather than
+fitted as if it were km/s (`Config.require_velocity_unit`, default True).
 
 `V_DIFFROT` … `V_MODEL_ERR` are `NaN` outside the fitted region (the tighter of
 the disk and edge cuts).  `VLOS_*` are `NaN` outside `disk_exclusion_radius`.
@@ -43,8 +55,9 @@ the disk and edge cuts).  `VLOS_*` are `NaN` outside `disk_exclusion_radius`.
 EXTNAME   layer name
 BUNIT     unit (absent for MASK_ACTIVE)
 QUANTITY  one-sentence physical definition
-FORMULA   the term this layer is responsible for
-PARAMS    parameters entering it
+FORMULA   the term this layer is responsible for (absent for MASK_ACTIVE)
+PARAMS    parameters entering it - **absent** on VLOS_OBS, VLOS_CORR and
+          MASK_ACTIVE, which no fitted parameter enters
 MODELVER  'full-2.0' or 'legacy-1.0'
 UNITSYS   sign convention
 SRCFILE   source file name
@@ -54,8 +67,11 @@ EDGEEXC   edge-exclusion angle used
 MASKBIND  which radial cut actually bound the fit: disk | edge | equal
 EFFRAD    effective fit radius in pixels
 ZEROPT    zero point subtracted from VLOS_OBS
-INVMETH   inversion method
-CALSPEC   km/s per spectral pixel actually used
+INVMETH   inversion method ('xcorr_fft_batched', or 'external_product' when a
+          2-D Doppler map was supplied)
+UNITSYS   sign convention ('LOS km/s, +receding')
+CALSPEC   km/s per spectral pixel actually used - only present when the input
+          was a spectral cube, so it is absent on 2-D Doppler products
 PROCDATE, SOFTWARE, VERSION
 COMMENT   caveats specific to the layer
 ```

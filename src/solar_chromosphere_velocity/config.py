@@ -44,6 +44,7 @@ class Config:
     flat_output: bool = False
     write_index: bool = True
     compress_output: bool = False
+    require_velocity_unit: bool = True     # refuse 2-D inputs without a velocity BUNIT
 
     # --- physics / model --------------------------------------------------
     legacy: bool = False

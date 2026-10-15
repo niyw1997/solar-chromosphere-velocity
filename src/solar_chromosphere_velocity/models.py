@@ -188,8 +188,15 @@ class ModelFit:
     condition: float = float("nan")
     n_limb_scan: Optional[Sequence[Tuple[float, float]]] = None
     limb_nonneg_active: bool = False
-    n_limb_sigma: float = float("nan")
+    n_limb_scan_step: float = float("nan")   # half the scan grid spacing
     dropped: Tuple[str, ...] = ()
+    flags: Dict[str, str] = field(default_factory=dict)
+
+    def is_identifiable(self, name: str) -> bool:
+        return name not in self.flags
+
+    def flagged(self) -> Tuple[str, ...]:
+        return tuple(sorted(self.flags))
 
     # -- lookups -----------------------------------------------------------
     def as_dict(self) -> Dict[str, float]:
@@ -217,7 +224,13 @@ class ModelFit:
                               "systemic translational velocity (km/s)")}
         for name, val, err in zip(TERM_ORDER, self.params, self.errors):
             cards["FIT_" + name] = float(val)
-            cards["ERR_" + name] = float(err)
+            if self.is_identifiable(name):
+                cards["ERR_" + name] = float(err)
+            # flagged parameters deliberately get no ERR_* card: writing 0.0
+            # would read as a perfectly measured value.  See FITFLAG.
+        if self.flags:
+            cards["FITFLAG"] = ",".join("%s:%s" % kv
+                                        for kv in sorted(self.flags.items()))
         om = self.omega_deg_per_day()
         if om is not None:
             cards["OMEGA_A"] = (float(om), "A as an angular rate (deg/day)")
@@ -362,21 +375,37 @@ def fit_model_streaming(blocks: Iterable[Tuple[Dict[str, np.ndarray], np.ndarray
     cov9[np.ix_(real, real)] = cov8[np.ix_(idx, idx)]
     errors9 = np.sqrt(np.maximum(np.diag(cov9), 0.0))
 
-    # uncertainty on N itself, from the RSS profile
-    n_sigma = float("nan")
-    if len(scan) > 2:
-        arr = np.asarray(scan)
-        i = int(np.argmin(arr[:, 1]))
-        if 0 < i < len(arr) - 1:
-            n_sigma = float(abs(arr[i + 1, 0] - arr[i - 1, 0]) / 2.0)
+    # ---- identifiability bookkeeping -------------------------------------
+    # A parameter pinned to a bound or lying in a degenerate direction has no
+    # meaningful uncertainty.  Reporting 0 would look like a perfect
+    # measurement, so the error is set to NaN and the parameter is flagged.
+    flags: Dict[str, str] = {}
+    scan_step = float("nan")
+    arr = np.asarray(scan, dtype=np.float64) if scan else None
+    if arr is not None and len(arr) > 2:
+        j = int(np.argmin(arr[:, 1]))
+        if 0 < j < len(arr) - 1:
+            scan_step = float(abs(arr[j + 1, 0] - arr[j - 1, 0]) / 2.0)
+        spread = float(arr[:, 1].max() - arr[:, 1].min())
+        if spread <= 1e-9 * max(abs(float(arr[:, 1].min())), 1.0):
+            flags["N"] = "FLAT_SCAN"          # the objective does not see N
+    if limb_active:
+        flags["e"] = "PINNED_AT_ZERO"
+        if "N" not in flags:
+            flags["N"] = "DEGENERATE_WITH_E"  # limb term is identically zero
+    for name in flags:
+        i = TERM_ORDER.index(name)
+        errors9[i] = np.nan
+        cov9[i, :] = np.nan
+        cov9[:, i] = np.nan
 
     return ModelFit(params=params9, errors=errors9, cov=cov9, n_limb=n_best,
                     rss=float(rss_best), n_points=int(n_points),
                     model_version=model_version,
                     rotation_amplitude="rad_per_s" if rotation_radius else "kms",
                     condition=cond, n_limb_scan=tuple(scan),
-                    limb_nonneg_active=limb_active, n_limb_sigma=n_sigma,
-                    dropped=dropped)
+                    limb_nonneg_active=limb_active, n_limb_scan_step=scan_step,
+                    dropped=dropped, flags=flags)
 
 
 def fit_model(coords: Dict[str, np.ndarray], velocity: np.ndarray,
