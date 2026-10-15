@@ -1,0 +1,615 @@
+% !TEX program = xelatex
+% ---------------------------------------------------------------------------
+%  Solar Chromosphere Velocity (v2) — 方法与实现说明
+%  用 xelatex 编译：  latexmk -xelatex theory.tex
+% ---------------------------------------------------------------------------
+\documentclass[11pt,a4paper]{ctexart}
+
+\usepackage{amsmath,amssymb,bm}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{geometry}
+\usepackage{array}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue!55!black,citecolor=blue!55!black,
+            urlcolor=blue!55!black]{hyperref}
+\usepackage{enumitem}
+\setlist{nosep,leftmargin=1.6em}
+
+\geometry{margin=2.4cm}
+\linespread{1.12}
+
+\newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\vlos}{V_{\mathrm{LOS}}}
+\newcommand{\Rsun}{R_{\odot}}
+\newcommand{\Proj}{\mathcal{P}}
+\newcommand{\Merid}{\mathcal{M}}
+\newcommand{\term}[1]{\textsf{#1}}
+
+\title{\bfseries 太阳色球视向速度反演程序（v2）\\[2mm]
+       \large 程序流程、并行框架、光谱拟合与速度模型}
+\author{\code{solar-chromosphere-velocity} v2.x}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+本文档说明 \code{solar-chromosphere-velocity} v2 的计算方法与实现。程序以 CHASE/HIS
+一级光谱数据立方体为输入，反演出日面视向速度场，并把它分解为若干具有明确物理意义的
+成分：较差自转、临边位移、经向环流与系统平移速度。文档依次给出：整体程序流程与阶段划分、
+流式（分条带）读取与批量化 FFT 构成的并行计算框架、谱线线心定位与互相关多普勒反演方法、
+速度场模型的完整表达式与每一项的物理意义、参数估计与不确定度、输出数据结构，以及与
+v1.0.1 的差异和实测加速比。文中所有公式均与源码实现逐一对应，并标注了对应的代码位置。
+\end{abstract}
+
+\tableofcontents
+\vspace{4mm}
+
+% ===========================================================================
+\section{概述与适用范围}
+% ===========================================================================
+
+\subsection{输入}
+CHASE（羲和号）HIS 载荷的一级（level-1）光谱数据立方体，典型形状
+$(\text{波长}, y, x) = (118, 2313, 2304)$（H$\alpha$，6562.82\,\AA，\code{SPECLINE='HA'}）
+或 $(46, 2313, 2304)$（Fe\,\textsc{i}，6569.22\,\AA，\code{SPECLINE='FEI'}）。
+立方体通常以 RICE\_1 分块压缩存放在 \code{hdu[1]}，第 0 个 HDU 是同一观测的二维线心强度图。
+程序同时接受已经是二维视向速度图的输入（例如 v1.0.1 生成的 \code{*\_Vdop.fits}）。
+
+\subsection{输出}
+每次观测时刻输出一个多扩展 FITS 文件，包含 10 个二维图层加 1 个参数表；同时输出
+\code{index.csv} 观测日志，可选输出多子图 PNG。输出\textbf{绝不写入输入目录}。
+
+\subsection{适用范围与不适用之处}
+\begin{itemize}
+  \item 适用的物理假设：谱线为单一吸收线，视向速度可由线心位移线性表示，
+        日面大尺度速度场在一张全日面像内由 9 个参数的解析模型描述。
+  \item 该方法给出的是\textbf{相对}视向速度。反演模板是日面中心区域的平均谱线轮廓，
+        因此任何绝对（引力红移 + 对流蓝移）线心位移已经包含在模板里；
+        参数 $G$ 是相对该模板的系统平移，\textbf{不可解释为引力红移}。
+  \item 不适用于强活动区局地速度场、多成分谱线（如 H$\alpha$ 有明显翼发射）的情形。
+\end{itemize}
+
+% ===========================================================================
+\section{程序流程}
+% ===========================================================================
+
+\subsection{阶段划分}
+\code{processor.py} 中 \code{process\_file()} 把一次处理拆成若干计时阶段，
+每个阶段写入 \code{ProcessResult.timings}（键名见表~\ref{tab:stages}）。
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  node distance=3.6mm,
+  box/.style={draw, rounded corners=1.2pt, align=center, inner sep=3.2pt,
+              font=\small, minimum width=76mm},
+  io/.style={box, fill=black!5},
+  key/.style={font=\scriptsize\ttfamily, text=black!62},
+  >={Stealth[length=1.7mm]}
+]
+\node[io] (in)  {一级光谱立方体 \code{*\_HA.fits} / \code{*\_FE.fits}};
+\node[box, below=of in]  (read)  {读取头信息，建立几何参数 \code{SolarParams}};
+\node[box, below=of read] (inv)  {谱线线心定位 $\to$ 互相关多普勒反演};
+\node[box, below=of inv]  (msk)  {日面掩膜与活动区掩膜 $\to$ 拟合样本};
+\node[box, below=of msk]  (fit)  {流式累积正规方程 $\to$ 速度模型参数};
+\node[box, below=of fit]  (rec)  {分块重构各物理成分与模型不确定度};
+\node[box, below=of rec]  (wrt)  {写多扩展 FITS + \code{index.csv}};
+\node[box, below=of wrt, fill=blue!6] (pl)  {可选：多子图 PNG};
+\node[io,  below=of pl]   (out)  {10 图层 + \code{FITPARAMS}};
+
+\draw[->] (in) -- (read);
+\draw[->] (read) -- (inv);   \node[key,right=1mm of inv]  {invert};
+\draw[->] (inv) -- (msk);    \node[key,right=1mm of msk]  {masks};
+\draw[->] (msk) -- (fit);    \node[key,right=1mm of fit]  {fit};
+\draw[->] (fit) -- (rec);    \node[key,right=1mm of rec]  {reconstruct};
+\draw[->] (rec) -- (wrt);    \node[key,right=1mm of wrt]  {write};
+\draw[->] (wrt) -- (pl);     \node[key,right=1mm of pl]   {plots};
+\draw[->] (pl) -- (out);
+\end{tikzpicture}
+\caption{单文件处理流程。右侧小字是写入 \code{timings} 的阶段键名。}
+\label{fig:flow}
+\end{figure}
+
+\noindent
+输入类型在进入流程前由 \code{data\_loader.detect\_data\_type()} 判定
+（三维立方体 $\to$ 光谱反演；二维速度图 $\to$ 直接拟合）。二维输入的
+\code{BUNIT} 会被遵守（\code{m/s} 自动换算为 \code{km/s}）；若单位既非速度也无法识别，
+默认拒绝处理，以免把强度图当作速度去拟合。
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{计时阶段（\code{ProcessResult.timings}）。}
+\label{tab:stages}
+\begin{tabular}{lll}
+\toprule
+键 & 内容 & 主要代码 \\
+\midrule
+\code{read+invert}   & 读取与反演合计 & \code{processor.\_read\_input} \\
+\code{invert}        & 纯反演 & \code{inversion.DopplerInverter.run} \\
+\code{masks}         & 日面与活动区掩膜 & \code{masks.active\_region\_mask} \\
+\code{fit}           & 模型参数最小二乘 & \code{models.fit\_model\_streaming} \\
+\code{reconstruct}   & 逐成分重构与误差面 & \code{processor.\_reconstruct\_blocks} \\
+\code{write}         & 写 FITS 与日志 & \code{output.write\_multihdu} \\
+\code{plots}         & 多子图（可选） & \code{plotting} \\
+\code{total}         & 单文件总计 & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{批处理与命名}
+\code{process\_directory()} 逐个文件调用 \code{process\_file()}，并为每个输入写一行
+\code{index.csv}（包括失败的输入）。输出路径由\textbf{头信息里的观测时刻}决定：
+\begin{center}
+\code{<output\_dir>/<YYYYMMDD>/<YYYYMMDD>T<HHMMSS>\_<LINE>\_scv.fits}
+\end{center}
+时刻优先取 \code{STR\_TIME}，回退到 \code{DATE-OBS}，最后才是文件名的时刻或文件
+修改时间；实际采用哪一种记录在 \code{index.csv} 的 \code{source} 列与头卡 \code{TIMEKEY}。
+因此\textbf{不同观测时刻不会互相覆盖}，与文件名无关。
+若目标名已存在且未开启 \code{overwrite\_existing}，程序会加后缀而不是静默覆盖。
+
+% ===========================================================================
+\section{数据读取与流式策略}
+% ===========================================================================
+
+RICE\_1 压缩的分块 FITS 在 astropy 中对应 \code{CompImageHDU}。访问 \code{hdu.data}
+会把整个立方体解压到内存；而 \code{hdu.section[...]} 只解压被请求的瓦片。
+v2 全程只使用后者，并以 \code{spatial\_strip\_rows}（默认 32）行为一个条带推进：
+
+\begin{equation}
+  \text{立方体 } (n_\lambda, n_y, n_x)
+  \;\longrightarrow\;
+  \underbrace{(n_\lambda^{\mathrm{win}},\, s,\, n_x)}_{\text{每个条带}}
+  ,\qquad s = \code{spatial\_strip\_rows}.
+\end{equation}
+
+条带宽度是实测折中：在 $2313\times2304$ 的 RICE 立方体上，32 行同时给出最小的
+峰值内存与最短反演时间（相较 64/128/256/512 行）。该策略使内存占用与图像面积近似无关，
+只与条带面积成正比。
+
+% ===========================================================================
+\section{日面几何坐标变换}
+% ===========================================================================
+
+对每个像素，先把它相对日面中心的偏移按仪器旋转角 $P_0$（头卡 \code{INST\_ROT}）旋转：
+\begin{equation}
+\begin{pmatrix} x_r \\ y_r \end{pmatrix}
+=
+\begin{pmatrix} \cos P_0 & -\sin P_0 \\ \sin P_0 & \cos P_0 \end{pmatrix}
+\begin{pmatrix} x - x_c \\ y - y_c \end{pmatrix},
+\qquad
+r = \sqrt{x_r^2 + y_r^2},
+\end{equation}
+其中 $(x_c, y_c)$ 是日面中心像素坐标，$R_\odot$ 是头卡 \code{R\_SUN} 给出的日面半径（像素）。
+采用正交（orthographic）投影，令 $\sin\rho = r/\Rsun$、$\rho=\arcsin(r/\Rsun)$，
+则日心角 $\rho$ 与位置角 $\theta$（$\cos\theta = y_r/r$，$\sin\theta = -x_r/r$）满足
+\begin{align}
+  \sin B &= \sin B_0 \cos\rho + \cos B_0 \sin\rho \cos\theta, \\
+  \sin L &= -\,\frac{\sin\rho\,\sin\theta}{\cos B},
+\end{align}
+其中 $B$、$L$ 为日面纬度和经度，$B_0$ 为日面中心纬度（头卡 \code{B0}）。
+中心像素 $r=0$ 处 $\theta$ 无定义，实现里取 $r\to0$ 的极限值（$\cos\theta=1$、$\sin\theta=0$）。
+另外返回 $\mu=\cos\rho$，即临边昏暗几何因子。
+
+\medskip
+\noindent\textbf{代码位置}：\code{geometry.solar\_coords()}；批量版本
+\code{geometry.coord\_arrays()}。全流程对该变换做了向量化，实测较 v1 的逐像素标量
+实现快约 59 倍。
+
+% ===========================================================================
+\section{谱线线心定位}
+% ===========================================================================
+
+反演的第一步是确定谱线的线心在第几个波长采样点。程序先取日面中心区域
+（半径 \code{reference\_profile\_radius}，默认 100 像素）的平均轮廓作为参考轮廓
+$\bar I(j)$，再在它上面定位线心。
+
+\subsection{波长解给出的提示}
+若头信息包含 \code{CDELT3}、\code{CRVAL3}、\code{WAVE\_LEN}（或可识别的
+\code{SPECLINE}），则由线性波长解
+\begin{equation}
+  \lambda(i) = \mathrm{CRVAL3} + \bigl(i - (\mathrm{CRPIX3}-1)\bigr)\,\mathrm{CDELT3}
+\end{equation}
+反解出线心所在采样点
+\begin{equation}
+  i_\star = \frac{\lambda_0 - \mathrm{CRVAL3}}{\mathrm{CDELT3}} + (\mathrm{CRPIX3}-1),
+  \label{eq:wcscenter}
+\end{equation}
+$\lambda_0$ 为静止波长（由 \code{WAVE\_LEN} 或 \code{SPECLINE} 查表得到）。
+\textbf{该值只作提示}：实测一级数据的波长解与数据本身可相差约 1.4 像素（约 3\,km/s），
+所以必须用数据本身来定线心。
+
+\subsection{高斯细化}
+在 $\bar I$ 的局部极小附近取窗口，用
+\begin{equation}
+  I(i) = I_c + A \exp\!\left[-\frac{(i-i_0)^2}{2\sigma^2}\right]
+\end{equation}
+做最小二乘拟合，得到连续线心位置 $i_0$（\code{LineCenter.index} 取整、
+\code{continuous} 为 $i_0$）。\code{--legacy} 时改用 v1 的阈值法
+（\code{linecenter.\_legacy\_center}）以复现 v1 结果。
+
+% ===========================================================================
+\section{多普勒速度反演}
+% ===========================================================================
+
+\subsection{互相关窗口}
+设线心采样点为 $i_0$，窗口半宽为 $w=\code{correlation\_half\_width}$（默认 10），
+则窗口为 $[i_0-w,\; i_0+w]$，长度 $L=2w+1$。参考信号为该窗口内的平均轮廓
+\begin{equation}
+  T(j) = \bar I(i_0-w+j), \qquad j = 0,\dots,L-1 .
+\end{equation}
+若开启连续谱扣除（\code{continuum\_subtraction}，默认在非 legacy 模式下开启），
+则对参考信号与被测信号都减去各自窗口内的均值：
+\begin{equation}
+  \tilde T(j) = T(j) - \bar T, \qquad
+  \tilde S_p(j) = S_p(j) - \bar S_p .
+\end{equation}
+减去窗口均值可以去掉连续谱斜率对互相关峰值位置的偏置。
+
+\subsection{互相关与亚像素细化}
+对每个空间像素 $p$，其观测窗口为 $S_p(j)$。循环互相关为
+\begin{equation}
+  C_p(k) = \sum_{j=0}^{L-1} \tilde S_p(j)\, \tilde T(j-k),
+  \label{eq:cc}
+\end{equation}
+实现上用 FFT 一次算出整个条带所有像素的 $C_p$：
+\begin{equation}
+  C_p = \mathrm{IFFT}\!\left[\mathrm{FFT}(\tilde S_p)\cdot
+        \overline{\mathrm{FFT}(\tilde T)}\right],
+\end{equation}
+再 \code{fftshift} 把零延迟移到 $k = \lfloor L/2 \rfloor$。
+
+取峰值位置 $k^\star = \arg\max_k C_p(k)$，用三点抛物线做亚像素细化：
+\begin{equation}
+  x = \frac{C_p(k^\star-1) - C_p(k^\star+1)}
+           {2\bigl[C_p(k^\star-1) - 2C_p(k^\star) + C_p(k^\star+1)\bigr]},
+  \label{eq:parab}
+\end{equation}
+则相对窗口中心的位移（单位：波长采样点）为
+\begin{equation}
+  \delta_p = \bigl(k^\star + x\bigr) - \Bigl\lfloor \frac{L}{2} \Bigr\rfloor .
+  \label{eq:disp}
+\end{equation}
+当 $k^\star$ 落在窗口端点时放弃抛物线项，直接取整数峰位（避免边界外插）。
+非 legacy 模式下 $x$ 被限幅到 $[-0.5,\,0.5]$（\code{limit\_subpixel\_shift}）。
+
+\subsection{速度标定}
+由色散 $\mathrm{CDELT3}$（\AA/pixel）与静止波长 $\lambda_0$ 得到每像素对应的速度
+\begin{equation}
+  \kappa \;=\; \frac{c\,\mathrm{CDELT3}}{\lambda_0},
+  \qquad c = 299792.458\ \mathrm{km\,s^{-1}},
+  \label{eq:scale}
+\end{equation}
+于是视向速度
+\begin{equation}
+  \boxed{\;\vlos(p) \;=\; \delta_p \cdot \kappa\;}
+  \label{eq:vlos}
+\end{equation}
+以 H$\alpha$ 为例（$\mathrm{CDELT3}=0.04844$\,\AA, $\lambda_0=6562.82$\,\AA）得
+$\kappa \approx 2.2139$\,km\,s$^{-1}$/pixel。\code{--legacy} 时改用 v1 的硬编码常数
+$\kappa_{\rm v1}=1.1068\times2=2.2136$\,km\,s$^{-1}$/pixel。
+日面外（$r>\Rsun$）按 v1 语义置 0；$r>\code{disk\_mask\_radius}\cdot\Rsun$ 置 \code{NaN}
+而不参与后续拟合。符号约定为\textbf{红移（远离观测者）为正}（头卡 \code{UNITSYS}）。
+
+% ===========================================================================
+\section{速度场模型：各项物理意义与表达式}
+% ===========================================================================
+
+\subsection{模型总式}
+记日面纬度 $B$（$s_B\equiv\sin B$）、经度 $L$、日心角 $\rho$，并定义两个投影因子
+\begin{align}
+  \Proj  &= \cos B \,\sin L \,\cos B_0, \label{eq:proj-rot}\\
+  \Merid &= \cos L \,\sin B \,\cos B_0 \;-\; \cos B \,\sin B_0 . \label{eq:proj-mer}
+\end{align}
+$\Proj$ 是自转（沿经度方向）速度在视线方向的投影，$\Merid$ 是经向环流在两分量
+$(\hat B,\hat L)$ 上展开后在视线方向的投影。则模型视向速度为
+\begin{equation}
+\boxed{
+\begin{aligned}
+V_{\mathrm{model}}(B,L,\rho) =\;&
+  s\Bigl(A + B s_B^{2} + C s_B^{4} + D \sin^{10}\!\rho\Bigr)\Proj
+  \quad\text{(较差自转)}\\
+ &+\; e\,\bigl(1-\cos\rho\bigr)^{N} \qquad\qquad\ \ \text{(临边位移)}\\
+ &+\; \bigl(\mathrm{MC1}\,s_B + \mathrm{MC2}\,\sin 2B\bigr)\Merid
+  \qquad\ \text{(经向环流)}\\
+ &+\; G \qquad\qquad\qquad\qquad\qquad\quad\ \ \text{(系统平移)}
+\end{aligned}}
+\label{eq:model}
+\end{equation}
+其中 $s = \Rsun = 6.957\times10^{5}$\,km 当自转参数以角速率给出时
+（\code{rotation\_amplitude='rad\_per\_s'}），否则 $s=1$（速度振幅，km/s）。
+
+\subsection{逐项物理意义}
+表~\ref{tab:terms} 给出 9 个参数各自对应的物理量与完整表达式；参数的排序
+\code{TERM\_ORDER}${}=(A,B,C,D,G,e,N,\mathrm{MC1},\mathrm{MC2})$ 与 v1 一致，
+以便与历史参数文件直接比较。
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{模型参数、物理意义与表达式（全部单位为 km/s，$N$ 无量纲）。}
+\label{tab:terms}
+\begin{tabular}{@{}lll@{}}
+\toprule
+参数 & 物理意义 & 表达式 \\
+\midrule
+$A$ & 赤道自转振幅（$\Omega$ 展开常数项）
+    & $s\,A\,\Proj$ \\
+$B$ & 自转的 $\sin^2 B$ 项（差分自转）
+    & $s\,B\,s_B^{2}\,\Proj$ \\
+$C$ & 自转的 $\sin^4 B$ 项
+    & $s\,C\,s_B^{4}\,\Proj$ \\
+$D$ & 自转的 $\sin^{10}\!\rho$ 临边项
+    & $s\,D\,\sin^{10}\!\rho\,\Proj$ \\
+$e$ & 临边位移振幅（\code{limb\_amplitude\_positive} 约束 $e\ge0$）
+    & $e\,(1-\cos\rho)^{N}$ \\
+$N$ & 临边位移的幂律指数（离散扫描确定）
+    & $(1-\cos\rho)^{N}$ \\
+$\mathrm{MC1}$ & 经向环流的 $\sin B$ 分量
+    & $\mathrm{MC1}\,s_B\,\Merid$ \\
+$\mathrm{MC2}$ & 经向环流的 $\sin 2B$ 分量
+    & $\mathrm{MC2}\,\sin 2B\,\Merid$ \\
+$G$ & 系统平移速度（相对反演模板的全局零点）
+    & $G$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+关于 $G$：反演模板取自日面中心区域，故 $G$ 吸收了三样东西——
+真正的系统平移、模板与静止波长的偏差、以及仪器的绝对波长零点。
+它与模板选择、零点改正 \code{zero\_point\_km\_s} 以及连续谱扣除的均值
+在数学上高度退化，因此\textbf{只能当作系统零点读数，不能解释为引力红移}。
+作为参考，名义引力红移 $GM/(\Rsun c) \approx 0.636$\,km/s，
+而实测 $|G|$ 约 $0.014$–$0.20$\,km/s（随谱线与事件而异），二者不在同一量级。
+
+\subsection{退化情形}
+当谱线不含可测的临边位移时（例如 H$\alpha$ 全日面平均而言），线性最小二乘给出的
+$e$ 可能为负；此时若 \code{limb\_amplitude\_positive} 为真，程序把 $e$ 钉在下界
+$e=0$（活动集步），于是 $V_{\rm LIMB}\equiv0$，且 $N$ 对模型完全无影响——
+两者都不可辨识。此时程序把它们标记为不可辨识并给出 \code{NaN} 误差
+（见 \S\ref{sec:ident}）。Fe\,\textsc{i} 的实测结果是 $e\approx0.19$\,km/s 且显著为正，
+因此 $V_{\rm LIMB}$ 呈现真实的临边增亮环。
+
+\subsection{由模型导出的输出图层}
+\code{models.VelocityModel.components()} 按表~\ref{tab:layers} 生成各图层。
+\code{V\_LARGE} 是四项之和（即模型面），\code{V\_RESID} 是观测减去模型面后再扣掉
+宁静日面均值（头卡 \code{QUIETMN}）。
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{输出图层的定义（\code{output.LAYERS}）。}
+\label{tab:layers}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\code{EXTNAME} & 物理意义 & 表达式 \\
+\midrule
+\code{VLOS\_OBS}   & 观测视向速度 & $\delta_p\kappa$ \ 式\eqref{eq:vlos} \\
+\code{VLOS\_CORR}  & 零点改正后的视向速度 & $\vlos - \mathrm{ZEROPT}$ \\
+\code{V\_DIFFROT}  & 较差自转分量 & $s(A+B s_B^2+C s_B^4+D\sin^{10}\!\rho)\Proj$ \\
+\code{V\_LIMB}     & 临边位移分量 & $e(1-\cos\rho)^N$ \\
+\code{V\_MERID}    & 经向环流（视向投影） & $(\mathrm{MC1}s_B+\mathrm{MC2}\sin2B)\Merid$ \\
+\code{V\_OFFSET}   & 系统平移 & $G$ \\
+\code{V\_LARGE}    & 大尺度流模型面 & 上四项之和 \\
+\code{V\_RESID}    & 残差视向速度 & $\code{VLOS\_CORR}-\code{V\_LARGE}-\code{QUIETMN}$ \\
+\code{V\_MODEL\_ERR} & 模型面的 $1\sigma$ & $\sqrt{\bm{x}^\top\Sigma\bm{x}}$ \\
+\code{MASK\_ACTIVE} & 活动区掩膜 & $0$ 宁静 / $1$ 活动 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ===========================================================================
+\section{参数估计、不确定度与可辨识性}
+% ===========================================================================
+
+\subsection{线性最小二乘与流式正规方程}
+除 $N$ 以外，模型对全部参数都是线性的：给定 $N$，设计矩阵 $\bm{X}$ 的 8 列依次为
+$[\Proj,\ s_B^2\Proj,\ s_B^4\Proj,\ \sin^{10}\!\rho\,\Proj,\ (1-\cos\rho)^N,\
+s_B\Merid,\ \sin2B\,\Merid,\ 1]$，
+待估向量 $\bm\beta = (A,B,C,D,e,\mathrm{MC1},\mathrm{MC2},G)^\top$。
+最小化
+\begin{equation}
+  \chi^2(\bm\beta) = \sum_{p}\bigl(\vlos^{(p)} - \bm{x}_p^\top\bm\beta\bigr)^2
+\end{equation}
+的正规方程为 $\bm{X}^\top\bm{X}\,\bm\beta = \bm{X}^\top\bm{y}$。程序不构造完整设计矩阵，
+而是按条带累加
+\begin{equation}
+  \bm{X}^\top\bm{X} \mathrel{+}= \bm{X}_b^\top\bm{X}_b,\qquad
+  \bm{X}^\top\bm{y} \mathrel{+}= \bm{X}_b^\top\bm{y}_b,\qquad
+  y^\top y \mathrel{+}= \bm{y}_b^\top\bm{y}_b ,
+\end{equation}
+使得内存占用与像素总数无关（$9\times9$ 的小矩阵），随后用 Cholesky 分解求解。
+
+\subsection{对 $N$ 的扫描}
+$N$ 以幂律指数出现，不能线性求解，因此对 \code{limb\_exponent\_scan}
+（默认 $\{1,1.25,1.5,2,2.5,3,4,5\}$）逐点求解同一组正规方程，取残差平方和最小者作为
+$N$ 的估计。扫描各点共享累加器，因此额外代价接近零。扫描得到的 $N$-RSS 曲线
+写入参数表头（\code{NSCAN}、\code{NSCAN02}、\dots）。
+
+\subsection{$e\ge0$ 的活动集步}
+若线性解给出 $e<0$，则约束最优解位于边界 $e=0$：程序\textbf{丢弃 $e$ 对应的列}
+重新求解。这会（必然地）抬升 RSS，那是约束的代价，而不是拒绝该约束的理由。
+
+\subsection{不确定度}
+协方差为 $\Sigma = \hat\sigma^2 (\bm{X}^\top\bm{X})^{-1}$，其中
+$\hat\sigma^2 = \mathrm{RSS}/(n-p)$。被丢弃的列在协方差中相应行列取 0。
+模型面的逐像素不确定度为
+\begin{equation}
+  \sigma_{\rm model}(\bm{x}) = \sqrt{\bm{x}^\top \Sigma\, \bm{x}} ,
+\end{equation}
+即输出图层 \code{V\_MODEL\_ERR}。
+
+\subsection{可辨识性与标记}
+\label{sec:ident}
+若某参数不可辨识，给出数值误差会产生“测得极准”的误导。程序因此对以下情形
+把该参数的误差置为 \code{NaN}、在 \code{FITPARAMS} 中写 \code{FLAG}、
+并且\textbf{不写} \code{ERR\_*} 头卡，而在 \code{PRIMARY} 里以 \code{FITFLAG} 汇总：
+\begin{itemize}
+  \item \code{PINNED\_AT\_ZERO}：$e$ 被约束在 $e=0$（活动集步生效）；
+  \item \code{DEGENERATE\_WITH\_E}：$e$ 被钉住时 $N$ 对模型无影响；
+  \item \code{FLAT\_SCAN}：$N$ 扫描的 RSS 变化可忽略；
+  \item \code{SCAN\_GRID}：$N$ 由离散网格选出，本就没有协方差意义上的误差。
+\end{itemize}
+注意协方差矩阵本身\textbf{不}被置为 \code{NaN}：只把上报的 $1\sigma$ 置 \code{NaN}，
+否则 $\sqrt{\bm{x}^\top\Sigma\bm{x}}$ 会把整张 \code{V\_MODEL\_ERR} 变成 \code{NaN}。
+
+% ===========================================================================
+\section{并行与流式计算框架}
+% ===========================================================================
+
+v2 的“并行”由三层构成，按贡献从大到小排列：
+
+\begin{enumerate}
+  \item \textbf{向量化的几何变换。} 一次算出整个条带所有像素的 $(B,L,\rho)$，
+        取代 v1 的逐像素 Python 循环（实测约 59 倍）。
+  \item \textbf{批量 FFT 互相关。} 式\eqref{eq:cc} 对条带内全部像素同时进行：
+        沿波长轴做 FFT，形状为 $(L, s\cdot n_x)$，一次调用即可完成数十万像素的互相关
+        （相对 v1 的逐像素循环约 38 倍；合成数据上单像素 24.4\,\textmu s $\to$ 0.65\,\textmu s）。
+  \item \textbf{流式正规方程。} 拟合阶段按条带累加 $9\times9$ 矩阵，
+        内存与像素数无关；重构阶段也按条带进行，只有输出图层常驻内存。
+\end{enumerate}
+
+\noindent
+配置项 \code{parallel\_processing} 与 \code{parallel\_processes} 目前是\textbf{保留项}：
+v2 的单文件处理已经足够快（见 \S\ref{sec:speed}），多进程主要用于\emph{多文件}批处理，
+由外部（例如调度器）并行更高效。程序内部保持单进程确定性，以保证结果可复现。
+
+\paragraph{复杂度。}
+设像素数 $P$、窗口长度 $L=2w+1$、条带行数 $s$：
+反演为 $\mathcal{O}(P L\log L)$，拟合为 $\mathcal{O}(P\cdot 8^2)$，
+峰值内存为 $\mathcal{O}(s\,n_x\,L + 10\,n_y n_x)$——前者来自条带，
+后者来自输出的 10 个 float32 图层。
+
+% ===========================================================================
+\section{输出结构}
+% ===========================================================================
+
+一次观测时刻对应一个 FITS 文件，扩展顺序固定：
+
+\begin{center}
+\code{PRIMARY}, \code{VLOS\_OBS}, \code{VLOS\_CORR}, \code{V\_DIFFROT},
+\code{V\_LIMB}, \code{V\_MERID}, \code{V\_OFFSET}, \code{V\_LARGE},
+\code{V\_RESID}, \code{V\_MODEL\_ERR}, \code{MASK\_ACTIVE}, \code{FITPARAMS}
+\end{center}
+
+\code{PRIMARY} 携带观测元信息（观测时刻、源文件、日面几何、\code{CALSPEC}、
+\code{INVMETH}、\code{UNITSYS}、拟合优度与 \code{FITFLAG} 等），且保证\textbf{无重复关键字}。
+每个速度图层写 \code{BUNIT='km/s'}、\code{QUANTITY}、\code{FORMULA}、\code{PARAMS}、
+\code{MODELVER}。\code{FITPARAMS} 是 9 行的二进制表，列为
+\code{NAME, VALUE, ERROR, UNIT, COMPONENT, FORMULA, DESCRIPTION, FLAG}。
+\code{index.csv} 每次运行一行一输入，列含观测时刻、时刻来源、输出文件名、模型版本、
+拟合点数、RMS、以及 9 个参数值。
+
+% ===========================================================================
+\section{与 v1.0.1 的差异和实测加速比}
+\label{sec:speed}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{物理与数值上的主要差异。}
+\begin{tabular}{@{}p{0.30\textwidth}p{0.60\textwidth}@{}}
+\toprule
+方面 & v2 相对 v1.0.1 \\
+\midrule
+速度标定 & 由头信息 \code{CDELT3}/\code{WAVE\_LEN} 计算（式\eqref{eq:scale}），
+          不再硬编码 $1.1068\times2$ \\
+线心 & 高斯拟合并以波长解为提示；v1 用阈值法 \\
+自转投影 & 含 $\cos B_0$ 因子；v1 未含 \\
+经向环流 & 做视线投影 $\Merid$（式\eqref{eq:proj-mer}）；v1 未投影 \\
+连续谱扣除 & 互相关窗口减均值；v1 未扣 \\
+亚像素限幅 & 抛物线项限幅 $\pm0.5$ 像素；v1 未限幅 \\
+读取 & 只用 \code{hdu.section} 分条带读取；v1 整幅解压 \\
+拟合 & 流式正规方程；v1 逐像素 \code{curve\_fit} \\
+输出 & 每观测时刻一个多扩展 FITS；v1 在输入目录旁写单层文件 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{BlueWhale 集群实测（20260424 H$\alpha$，$2313\times2304\times118$，
+64 核 \code{mpi} 队列，conda 环境 python 3.11 / astropy 8.0.1 / numpy 2.4.6）。}
+\label{tab:speed}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+实现 & 用时 (s) & 峰值内存 (GB) \\
+\midrule
+v1.0.1（原版）            & 169.17 & 4.266 \\
+v2 \code{--legacy}        &   8.90 & 0.575 \\
+v2 完整物理式             &   9.59 & 0.583 \\
+\midrule
+加速比（完整物理式）      & \multicolumn{2}{r}{$17.6\times$} \\
+加速比（\code{--legacy}） & \multicolumn{2}{r}{$19.0\times$} \\
+内存比                    & \multicolumn{2}{r}{$7.3\times$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+同一次运行中，v2 的 \code{VLOS\_OBS} 与 v1 产品之差为
+$\max|\Delta| = 9.5\times10^{-7}$\,km\,s$^{-1}$（rms $7.5\times10^{-8}$），
+可辨识参数之差 $\max|\Delta|=4.4\times10^{-7}$，
+即两版在数值上是同一条曲线，差别来自上述物理项的修正。
+
+% ===========================================================================
+\appendix
+\section{符号表}
+% ===========================================================================
+
+\begin{longtable}{@{}ll@{}}
+\toprule
+符号 & 含义 \\
+\midrule
+\endhead
+$B$, $L$, $\rho$ & 日面纬度、经度、日心角 \\
+$B_0$            & 日面中心纬度（\code{B0}） \\
+$\mu=\cos\rho$   & 临边昏暗几何因子 \\
+$\Rsun$          & 日面半径（像素：\code{R\_SUN}；物理：$6.957\times10^5$\,km） \\
+$\delta_p$       & 像素 $p$ 的互相关亚像素位移（式\eqref{eq:disp}） \\
+$\kappa$         & 速度标定，km/s/pixel（式\eqref{eq:scale}） \\
+$\Proj$, $\Merid$ & 自转、经向环流的视线投影因子（式\eqref{eq:proj-rot}、\eqref{eq:proj-mer}） \\
+$\bm{X},\bm\beta$ & 设计矩阵、参数向量 \\
+$w$              & 互相关窗口半宽（\code{correlation\_half\_width}） \\
+$s$              & 条带行数（\code{spatial\_strip\_rows}） \\
+\bottomrule
+\end{longtable}
+
+\section{关键配置项（v2.1 命名）}
+% ===========================================================================
+
+\begin{longtable}{@{}lll@{}}
+\toprule
+配置项 & 默认 & 含义 \\
+\midrule
+\endhead
+\code{limb\_exponent}             & \code{None} & 固定幂律指数 $N$；默认扫描 \\
+\code{limb\_exponent\_scan}       & $1\ldots5$  & $N$ 的扫描网格 \\
+\code{limb\_amplitude\_positive}  & \code{True} & 约束 $e\ge0$ \\
+\code{correlation\_half\_width}   & 10 & 互相关窗口半宽 $w$ \\
+\code{reference\_profile\_radius} & 100 & 参考轮廓平均半径（像素） \\
+\code{continuum\_subtraction}     & 非 legacy 开启 & 窗口减均值 \\
+\code{limit\_subpixel\_shift}     & 非 legacy 开启 & 亚像素限幅 $\pm0.5$ \\
+\code{reference\_...}             & --- & 见 \code{Config} 文档 \\
+\code{disk\_mask\_radius}         & 0.95 & 掩膜半径（以 $\Rsun$ 为单位） \\
+\code{active\_region\_sigma\_threshold} & 3.0 & 活动区阈值（$\sigma$） \\
+\code{active\_region\_robust\_sigma}    & 非 legacy 开启 & 用稳健（MAD）$\sigma$ \\
+\code{min\_active\_region\_area}  & 100 & 活动区最小面积（像素） \\
+\code{active\_region\_grow\_steps}   & 3 & 活动区膨胀步数 \\
+\code{active\_region\_shrink\_steps} & 1 & 活动区收缩步数 \\
+\code{spatial\_strip\_rows}       & 32 & 流式条带行数 $s$ \\
+\code{parallel\_processing}       & \code{False} & 保留项 \\
+\code{parallel\_processes}        & 1 & 保留项 \\
+\code{rotation\_amplitude}        & \code{'kms'} & \code{'rad\_per\_s'} 时 $A,B,C,D$ 为角速率 \\
+\code{zero\_point\_km\_s}         & 0.0 & 常数零点改正 \\
+\bottomrule
+\end{longtable}
+
+\end{document}
