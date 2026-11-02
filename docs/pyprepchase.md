@@ -16,7 +16,7 @@ sawtooth of about 8" between frames, which is an instrumental offset, not a velo
 ## How to enable
 
 ```bash
-pip install -e ".[prep]"     # installs pyprepchase>=0.1
+pip install -e ".[prep]"     # installs pyprepchase from GitHub (tag v0.1.0)
 process-chase data out --use-pyprepchase --pyprepchase-cache ~/chase/prep_cache
 ```
 
