@@ -24,7 +24,7 @@ Doppler inversion:
 
 ```bash
 pip install -e ".[prep]"
-process-chase data out --use-pyprepchase --pyprepchase-cache ~/chase/prep_cache
+process-chase data out --use-pyprepchase --pyprepchase-cache ~/.cache/pyprepchase
 ```
 
 or in Python:
@@ -32,7 +32,7 @@ or in Python:
 ```python
 cfg = ChromosphereConfig(input_dir="data", output_dir="out")
 cfg.use_pyprepchase = True          # default: False
-cfg.pyprepchase_cache_dir = "~/chase/prep_cache"
+cfg.pyprepchase_cache_dir = "~/.cache/pyprepchase"
 ```
 
 The step only changes the spatial `CRPIX` and the pixel resampling; the spectral axis, units and

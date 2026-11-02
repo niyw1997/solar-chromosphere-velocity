@@ -95,7 +95,7 @@ def create_parser() -> argparse.ArgumentParser:
         "--pyprepchase-cache",
         default=None,
         help="Cache directory for pyprepchase-corrected cubes "
-             "(default: ~/chase/prep_cache)"
+             "(default: ~/.cache/pyprepchase)"
     )
     
     parser.add_argument(

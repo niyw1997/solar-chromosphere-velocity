@@ -131,7 +131,7 @@ class ChromosphereProcessor:
         try:
             info = prepare(filepath,
                            cache_dir=getattr(self.config, "pyprepchase_cache_dir",
-                                             "~/chase/prep_cache"),
+                                             "~/.cache/pyprepchase"),
                            overwrite=getattr(self.config, "pyprepchase_overwrite", False))
         except Exception as exc:
             logger.warning("pyprepchase failed on %s (%s); processing the raw file",

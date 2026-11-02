@@ -104,7 +104,7 @@ class ChromosphereConfig:
     # Optional CHASE pointing-jitter preprocessing (pyprepchase).
     # The step only touches the spatial CRPIX and the pixel resampling.
     use_pyprepchase: bool = False
-    pyprepchase_cache_dir: str = "~/chase/prep_cache"
+    pyprepchase_cache_dir: str = "~/.cache/pyprepchase"
     pyprepchase_overwrite: bool = False
 
     spectral_line_type: str = "auto"  # auto, HA, FE

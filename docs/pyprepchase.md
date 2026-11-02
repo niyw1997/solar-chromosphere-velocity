@@ -17,14 +17,14 @@ sawtooth of about 8" between frames, which is an instrumental offset, not a velo
 
 ```bash
 pip install -e ".[prep]"     # installs pyprepchase from GitHub (tag v0.1.0)
-process-chase data out --use-pyprepchase --pyprepchase-cache ~/chase/prep_cache
+process-chase data out --use-pyprepchase --pyprepchase-cache ~/.cache/pyprepchase
 ```
 
 ```python
 from solar_chromosphere_velocity import ChromosphereConfig
 cfg = ChromosphereConfig(input_dir="data", output_dir="out")
 cfg.use_pyprepchase = True
-cfg.pyprepchase_cache_dir = "~/chase/prep_cache"   # default
+cfg.pyprepchase_cache_dir = "~/.cache/pyprepchase"   # default
 cfg.pyprepchase_overwrite = False                  # recompute the cache
 ```
 
