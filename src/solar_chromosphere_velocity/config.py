@@ -100,6 +100,13 @@ class ChromosphereConfig:
     
     # Spectral processing
     spectral_processing: bool = True
+
+    # Optional CHASE pointing-jitter preprocessing (pyprepchase).
+    # The step only touches the spatial CRPIX and the pixel resampling.
+    use_pyprepchase: bool = False
+    pyprepchase_cache_dir: str = "~/chase/prep_cache"
+    pyprepchase_overwrite: bool = False
+
     spectral_line_type: str = "auto"  # auto, HA, FE
     doppler_inversion_method: str = "cross_correlation"  # cross_correlation, gaussian_fit
     reference_profile_path: Optional[str] = None

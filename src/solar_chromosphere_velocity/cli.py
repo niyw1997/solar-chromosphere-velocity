@@ -84,6 +84,19 @@ def create_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable spectral data preprocessing"
     )
+
+    parser.add_argument(
+        "--use-pyprepchase",
+        action="store_true",
+        help="Enable the optional CHASE pointing-jitter preprocessing (pyprepchase)"
+    )
+
+    parser.add_argument(
+        "--pyprepchase-cache",
+        default=None,
+        help="Cache directory for pyprepchase-corrected cubes "
+             "(default: ~/chase/prep_cache)"
+    )
     
     parser.add_argument(
         "--spectral-line",
@@ -236,6 +249,12 @@ def setup_config(args: argparse.Namespace) -> ChromosphereConfig:
         config.visualization_mode = VisualizationMode.NONE
     
     # Set spectral processing options
+    # Optional CHASE pointing-jitter preprocessing
+    if getattr(args, "use_pyprepchase", False):
+        config.use_pyprepchase = True
+    if getattr(args, "pyprepchase_cache", None):
+        config.pyprepchase_cache_dir = args.pyprepchase_cache
+
     if args.no_spectral_processing:
         config.spectral_processing = False
     else:

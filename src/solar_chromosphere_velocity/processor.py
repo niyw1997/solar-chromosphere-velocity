@@ -109,6 +109,41 @@ class ChromosphereProcessor:
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
     
+
+    def _maybe_pyprep(self, filepath: str, processing_config=None) -> str:
+        """Run pyprepchase on the input when ``use_pyprepchase`` is on.
+
+        The corrected cube is cached next to the user's data; the source file is
+        only ever opened read-only.  When pyprepchase is missing the raw file is
+        processed with a warning so the pipeline never hard-fails on an optional
+        dependency.
+        """
+        if not getattr(self.config, "use_pyprepchase", False):
+            return filepath
+        if "_prep.fits" in os.path.basename(filepath):
+            return filepath
+        try:
+            from pyprepchase.scv import prepare
+        except Exception:
+            logger.warning("use_pyprepchase=True but pyprepchase is not importable; "
+                           "processing the raw file")
+            return filepath
+        try:
+            info = prepare(filepath,
+                           cache_dir=getattr(self.config, "pyprepchase_cache_dir",
+                                             "~/chase/prep_cache"),
+                           overwrite=getattr(self.config, "pyprepchase_overwrite", False))
+        except Exception as exc:
+            logger.warning("pyprepchase failed on %s (%s); processing the raw file",
+                           filepath, exc)
+            return filepath
+        logger.info("pyprepchase: %s -> %s (shift %+.2f, %+.2f px, cached=%s)",
+                    os.path.basename(filepath), os.path.basename(info["path"]),
+                    info["shift_px"][0], info["shift_px"][1], info["cached"])
+        if processing_config:
+            processing_config.update_progress(0, "Pointing-jitter correction")
+        return info["path"]
+
     @timeit
     def process_file(self, filepath: str, 
                      processing_config: Optional[ProcessingConfig] = None) -> Dict[str, Any]:
@@ -123,7 +158,10 @@ class ChromosphereProcessor:
             Dictionary containing processing results
         """
         logger.info(f"Processing file: {filepath}")
-        
+
+        # Optional: remove the CHASE per-frame pointing jitter before anything else.
+        filepath = self._maybe_pyprep(filepath, processing_config)
+
         if processing_config:
             processing_config.current_file = os.path.basename(filepath)
             processing_config.update_progress(0, "Detecting data type")

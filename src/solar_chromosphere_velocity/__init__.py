@@ -3,7 +3,7 @@ Solar Chromosphere Velocity Processor
 A package for processing solar chromospheric velocity data from CHASE mission.
 """
 
-__version__ = "1.0.1"  # Updated version
+__version__ = "1.1.0"  # Optional pyprepchase preprocessing
 __author__ = "Solar Physics Team"
 __email__ = "solar@example.com"
 
