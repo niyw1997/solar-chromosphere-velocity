@@ -94,6 +94,21 @@ def build_parser(prog: str = "scv", legacy_default: bool = False):
     scn.add_argument("--stripe-mode", choices=["band", "envelope"],
                      default="band",
                      help="Fourier band-stop or envelope template")
+    scn.add_argument("--stripe-topn", type=int, default=2,
+                     help="number of parallel stripe wave vectors to remove")
+    scn.add_argument("--stripe-band-width", type=float, default=0.20,
+                     help="notch width in units of the central wavenumber; "
+                          "larger removes a broader band")
+    scn.add_argument("--stripe-strength", type=float, default=1.0,
+                     help="multiplier on the flat-field template")
+    scn.add_argument("--stripe-second-pass", action="store_true",
+                     help="re-detect and remove the stripes that survive the "
+                          "first pass (off by default: it can over-subtract)")
+    scn.add_argument("--protect-sigma", type=float, default=8.0,
+                     help="smoothing of the velocity before the "
+                          "active-region protection threshold, px")
+    scn.add_argument("--protect-smooth", type=float, default=12.0,
+                     help="dilation of the protected active-region area, px")
     scn.add_argument("--write-vresid", action="store_true",
                      help="also write the level-0.5 intermediate V_RESID")
     scn.add_argument("--write-scan-terms", action="store_true",
@@ -231,6 +246,12 @@ def config_from_args(args) -> Config:
         stripe_removal=not args.no_stripe_removal,
         stripe_peaks=_parse_peaks(args.stripe_peaks),
         stripe_mode=args.stripe_mode,
+        stripe_topn=args.stripe_topn,
+        stripe_band_width=args.stripe_band_width,
+        stripe_strength=args.stripe_strength,
+        stripe_second_pass=bool(args.stripe_second_pass),
+        protect_sigma=args.protect_sigma,
+        protect_smooth=args.protect_smooth,
         write_vresid=args.write_vresid,
         write_scan_terms=args.write_scan_terms,
         joint_grid=args.joint_grid,

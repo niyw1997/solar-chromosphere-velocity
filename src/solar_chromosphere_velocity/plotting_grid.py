@@ -61,6 +61,7 @@ JOINT_COLUMNS = (
     ("V_DIFFROT", r"$V_{\rm diffrot}$", 2.0, None),
     ("V_OTHER", r"$V_{\rm limb}+V_{\rm meridian}$" + "\n"
      + r"$+\,V_{\rm offset}$", None, 18.5),
+    ("V_SS", r"$V_{\rm SS}$", None, None),        # scan-saddle + flat field
     ("V_LOCAL", r"$V_{\rm local}$", 1.5, None),   # V_RESID fallback below
 )
 
@@ -110,7 +111,7 @@ def _require_mpl():
 # ---------------------------------------------------------------------------
 #: layers the joint grid actually needs
 JOINT_LAYERS = ("VLOS_OBS", "V_DIFFROT", "V_LIMB", "V_MERID", "V_OFFSET",
-                "V_LOCAL", "V_RESID")
+                "V_SS", "V_LOCAL", "V_RESID")
 
 
 def read_product(path: str, names: Optional[Sequence[str]] = None
@@ -215,6 +216,8 @@ def joint_grid_rows(ha_path: str, fe_path: str, *, font_scale: float = 2.5,
                    for name, *_ in JOINT_COLUMNS
                    if name != "V_OTHER"
                    and (resid_key if name == "V_LOCAL" else name) not in layers]
+        # V_SS is a level-0.5 intermediate: drop the column on older products
+        missing = [m for m in missing if m != "V_SS"]
         if missing:
             raise ValueError("%s is missing layers %s"
                              % (os.path.basename(path), missing))
@@ -233,11 +236,18 @@ def joint_grid_rows(ha_path: str, fe_path: str, *, font_scale: float = 2.5,
         panels = []
         resid_label = (r"$V_{\rm local}$" if resid_key == "V_LOCAL"
                        else r"$V_{\rm resid}$")
-        for name, panel_label, fixed, lsize in JOINT_COLUMNS:
+        columns = [c for c in JOINT_COLUMNS
+                   if (resid_key if c[0] == "V_LOCAL" else c[0]) in layers]
+        for name, panel_label, fixed, lsize in columns:
             key = resid_key if name == "V_LOCAL" else name
             if name == "V_LOCAL":
                 panel_label = resid_label
-            vmax = fixed if fixed is not None else vmax_other
+            if fixed is not None:
+                vmax = fixed
+            elif name == "V_OTHER":
+                vmax = vmax_other
+            else:                       # V_SS has its own, much smaller scale
+                vmax = nice_velocity_limit([layers[key]])
             annotation = None
             if name == "V_OTHER":
                 annotation = "offset %+.4f" % float(
@@ -457,7 +467,7 @@ def plot_map_grid(rows: Sequence[Row], out: str, *, dpi: int = 300,
 
 
 def plot_joint_grid(ha_path: str, fe_path: str, out: str, *,
-                    dpi: int = 300, font_scale: float = 2.5,
+                    dpi: int = 350, font_scale: float = 2.5,
                     panel_height_in: float = 4.75, gap_in: float = 0.048,
                     xticks: Optional[Sequence[float]] = (-1000, 0, 1000),
                     yticks: Optional[Sequence[float]] = (-1000, 0, 1000),

@@ -58,7 +58,8 @@ V_LOCAL = V_RESID - V_SS
 `V_SCAN_SADDLE` is a full-disk quadratic in the normalised disk coordinates
 (`c0 + c1 Y + c2 Y^2 + c3 X + c4 XY + c5 X^2`).  `V_FLAT` is a parallel-stripe
 template, either a Fourier band-stop or an envelope template, at wave vectors
-detected from the map itself (25-150 px) or given with `--stripe-peaks LAM:ANG`.
+detected from the map itself (30-1500 px, parallel peaks only) or given with
+`--stripe-peaks LAM:ANG`.
 The flat-field term is damped by a smooth active-region weight, so real blobs
 survive.  `V_LOCAL` replaces `V_RESID` in the product; `V_RESID` becomes a
 level-0.5 intermediate that is written only with `--write-vresid`, and
@@ -425,7 +426,7 @@ contract.
 
 ## Scan-saddle and flat-field removal
 
-Two detector-scale systematics survive the nine-parameter flow model, and both
+Two systematics survive the nine-parameter flow model, and both
 are removed by default before the product is written:
 
 $$V_{SS} = V_{\rm scan\_saddle} + V_{\rm flat}, \qquad
@@ -442,13 +443,15 @@ flow model cannot represent.
 
 **Flat field (stripes).** A parallel-stripe template at wavelength `lambda` and
 orientation `theta`, removed either by a Fourier band-stop (Gaussian notch at
-`+/- k0` with `sigma = 0.30 k0`, applied through a cosine taper so the disk edge
+`+/- k0` with `sigma = 0.20 k0`, applied through a cosine taper so the disk edge
 does not ring) or by an envelope template (demodulate `exp(-i k . r)`, smooth
 with `sigma = 80 px`, re-modulate, times two).  The wave vectors are **detected
 from the map itself**: local maxima of the 2-D power spectrum with wavelengths
-between 25 and 150 px, which is the detector-scale stripe range.  Supply
-`--stripe-peaks 47.4:108` to pin them instead.  A second pass can re-remove
-peaks that survived, using the after/before stripe RMS ratio (trigger above 0.4).
+between 30 and 1500 px, limited to those sharing the orientation of the
+strongest peak (within 10 degrees), because the fringes are parallel and run to
+the scale of the whole image.  Supply
+`--stripe-peaks 47.4:108` to pin them instead.  An optional second pass (`--stripe-second-pass`, off by default) re-removes what survived,
+triggered by the after/before stripe RMS ratio (above 0.4); it is off by default.
 
 **Active-region protection.** Real blobs must not be erased by the flat field,
 so the template is multiplied by a smooth weight
@@ -474,9 +477,9 @@ per observation time**: one row per line, one column per physical component.
 ![joint H-alpha and Fe I component grid](docs/figs/joint_grid_20251111.png)
 
 Rows are H-alpha and Fe I at the same observing time; columns are
-`VLOS_OBS`, `V_DIFFROT`, `V_LIMB + V_MERID + V_OFFSET` and `V_LOCAL`, so the four
-panels of a row read directly as the decomposition of the observed velocity
-field. The layout is fixed in `plotting_grid.py` so every figure looks the same:
+`VLOS_OBS`, `V_DIFFROT`, `V_LIMB + V_MERID + V_OFFSET`, `V_SS` and `V_LOCAL`, so
+the five panels of a row read directly as the decomposition of the observed
+velocity field and of the systematics that were removed from it. The layout is fixed in `plotting_grid.py` so every figure looks the same:
 
 * rows and columns share the same **absolute** gap in inches, and every panel
   keeps the data aspect, so no extra whitespace appears between columns;

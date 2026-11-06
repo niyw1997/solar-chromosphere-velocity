@@ -255,7 +255,14 @@ class ChromosphereProcessor:
                 lambda_min=cfg.stripe_lambda_range[0],
                 lambda_max=cfg.stripe_lambda_range[1],
                 topn=cfg.stripe_topn,
+                band_width=cfg.stripe_band_width,
+                envelope_sigma=cfg.stripe_envelope_sigma,
+                flat_strength=cfg.stripe_strength,
+                second_ratio=cfg.stripe_second_ratio,
+                second_auto=cfg.stripe_second_pass,
                 second_peaks=cfg.stripe_second_peaks or None,
+                protect_sigma=cfg.protect_sigma,
+                protect_smooth=cfg.protect_smooth,
                 spec_line=params.spec_line)
         timings["reconstruct"] = time.perf_counter() - t0
 
@@ -275,7 +282,8 @@ class ChromosphereProcessor:
         }
         if cfg.write_vresid:                 # level-0.5 intermediate
             layers["V_RESID"] = resid
-        if cfg.write_scan_terms:             # level-0.5 intermediates
+        # the joint H-alpha + Fe I figure shows V_SS, so it has to be on disk
+        if cfg.write_scan_terms or cfg.joint_grid:
             layers["V_SCAN_SADDLE"] = corr.scan_saddle.astype(np.float32)
             layers["V_FLAT"] = corr.flat.astype(np.float32)
             layers["V_SS"] = corr.ss.astype(np.float32)

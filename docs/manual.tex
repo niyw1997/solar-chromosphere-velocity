@@ -576,7 +576,7 @@ subtracts the Gaussian notches at $\pm \bm{k}_0$,
 \begin{equation}
   G(\bm{k}) = \exp\!\left(-\frac{|\bm{k}-\bm{k}_0|^2}{2\sigma_k^2}\right)
             + \exp\!\left(-\frac{|\bm{k}+\bm{k}_0|^2}{2\sigma_k^2}\right),
-  \qquad \sigma_k = 0.30\,k_0,
+  \qquad \sigma_k = 0.20\,k_0,
   \qquad k_0 = 1/\lambda,
 \end{equation}
 then divides by the taper so the disk edge does not ring.
@@ -594,14 +594,17 @@ disk while keeping its wavelength fixed.
 \paragraph{Finding the wave vectors.}  By default the stripe wave vectors are
 detected from the map: the 2-D power spectrum is computed on a tapered image,
 local maxima are collected, and only peaks with
-$25\,\mathrm{px} \le \lambda \le 150\,\mathrm{px}$ and a power above eight times
-the median of that annulus are kept.  The 25--150\,px interval is the
-detector-scale stripe range: shorter than any large-scale flow pattern and
-longer than pixel noise.  The number of vectors is set by
+$30\,\mathrm{px} \le \lambda \le 1500\,\mathrm{px}$ and a power above eight times
+the median of that annulus are kept.  The 30--1500\,px interval is where the fringes of this instrument
+  live: they are periodic, spatially low-frequency and run to the scale of
+  the whole image, so a search restricted to short wavelengths would lock
+  onto genuine mid-scale structure.  Only peaks sharing the orientation of
+  the strongest one (within \code{stripe\_angle\_tolerance}, default
+  $10^\circ$) are kept, because the fringes are parallel.  The number of vectors is set by
 \code{stripe\_topn} (default 2) and can be pinned explicitly with
 \code{stripe\_peaks} or \code{--stripe-peaks LAM:ANG}.
 
-A second pass can re-remove peaks that survived the first one.  For each
+An optional second pass (\code{--stripe-second-pass}, off by default because it\ncan over-subtract) re-removes peaks that survived the first one.  For each
 residual wave vector the after/before stripe RMS ratio is
 \begin{equation}
   R = \frac{\mathrm{std}\big[B\,(V_{\mathrm{after}})\big]}

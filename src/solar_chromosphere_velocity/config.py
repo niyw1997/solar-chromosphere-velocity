@@ -88,15 +88,26 @@ class Config:
     stripe_removal: bool = True             # the flat-field term
     stripe_peaks: Tuple[Tuple[float, float], ...] = ()   # (lam_px, ang_deg); () -> detect
     stripe_mode: str = "band"               # 'band' | 'envelope'
-    stripe_lambda_range: Tuple[float, float] = (25.0, 150.0)
-    stripe_topn: int = 2
+    # The fringes that matter are full-image-scale, parallel and spatially
+    # low-frequency: wavelengths run to of order the image size, not to 150 px.
+    stripe_lambda_range: Tuple[float, float] = (30.0, 1500.0)
+    stripe_topn: int = 2                   # parallel stripes removed
+    stripe_band_width: float = 0.20        # narrow notch: only the stripe itself
+    stripe_angle_tolerance: float = 10.0   # peaks must share one orientation
+    stripe_envelope_sigma: float = 80.0    # envelope smoothing, px
+    stripe_strength: float = 1.0           # multiplier on V_FLAT
+    stripe_second_pass: bool = False       # opt-in; can over-subtract
+    stripe_second_ratio: float = 0.4
     stripe_second_peaks: Tuple[Tuple[float, float], ...] = ()
+    # active-region protection: smooth, and spread over a larger footprint
+    protect_sigma: float = 8.0             # smooth the velocity before thresholding
+    protect_smooth: float = 12.0           # dilate the protected area, px
     write_vresid: bool = False              # keep the level-0.5 V_RESID
     write_scan_terms: bool = False          # keep V_SCAN_SADDLE / V_FLAT / V_SS
 
     # --- plots / logging --------------------------------------------------
     visualize: bool = False
-    plot_dpi: int = 150
+    plot_dpi: int = 200
     plot_format: str = "png"
     colormap: str = "bwr"
     plot_per_component: bool = False       # also write one figure per component

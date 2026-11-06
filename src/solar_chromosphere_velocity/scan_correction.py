@@ -149,23 +149,52 @@ def scan_saddle(velocity, header):
     return np.where(finite, surface, np.nan), coeffs
 
 
-def stripe_band(velocity, lam: float, ang: float, width: float = 0.30):
-    """Fourier band-stop at wavelength ``lam`` (pixels) and ``ang`` (degrees)."""
+def _prepared(velocity):
+    """Taper, FFT and the taper itself, so several notches share one transform."""
     d = np.asarray(velocity, dtype=np.float64)
-    ny, nx = d.shape
     finite = np.isfinite(d)
     tap = _taper(finite)
     a = np.where(finite, np.nan_to_num(d), 0.0) * tap
     F = np.fft.fftshift(np.fft.fft2(a))
+    return F, tap, finite
+
+
+def _notch_spectrum(F, shape, lam: float, ang: float, width: float):
+    """Multiply the spectrum by a Gaussian notch pair at +/-k0 (no inverse yet)."""
+    ny, nx = shape
     KX, KY = _k_grid((ny, nx))
     k0 = 1.0 / float(lam)
     theta = np.deg2rad(float(ang))
     kx0, ky0 = k0 * np.cos(theta), k0 * np.sin(theta)
-    sigma = float(width) * k0
-    G = (np.exp(-((KX - kx0) ** 2 + (KY - ky0) ** 2) / (2 * sigma ** 2))
-         + np.exp(-((KX + kx0) ** 2 + (KY + ky0) ** 2) / (2 * sigma ** 2)))
-    S = np.real(np.fft.ifft2(np.fft.ifftshift(F * G)))
+    # a notch much narrower than one k-grid step removes nothing, which matters
+    # for the full-image-scale stripes (lambda of order the image size)
+    sigma = max(float(width) * k0, 1.2 / max(nx, ny))
+    G = (np.exp(-((KX + kx0) ** 2 + (KY + ky0) ** 2) / (2 * sigma ** 2))
+         + np.exp(-((KX - kx0) ** 2 + (KY - ky0) ** 2) / (2 * sigma ** 2)))
+    return F * G
+
+
+def _finish(spectrum_sum, tap):
+    """Inverse transform and undo the taper."""
+    S = np.real(np.fft.ifft2(np.fft.ifftshift(spectrum_sum)))
     return np.where(tap > 0.05, S / np.maximum(tap, 1e-6), 0.0)
+
+
+def stripe_bands(velocity, peaks, width: float = 0.45, prepared=None):
+    """Sum of the band-stop templates at several wave vectors, one FFT."""
+    if not peaks:
+        return np.zeros_like(np.asarray(velocity, dtype=np.float64))
+    F, tap, finite = prepared if prepared is not None else _prepared(velocity)
+    total = None
+    for lam, ang in peaks:
+        part = _notch_spectrum(F, finite.shape, lam, ang, width)
+        total = part if total is None else total + part
+    return _finish(total, tap)
+
+
+def stripe_band(velocity, lam: float, ang: float, width: float = 0.45):
+    """Fourier band-stop at wavelength ``lam`` (pixels) and ``ang`` (degrees)."""
+    return stripe_bands(velocity, [(lam, ang)], width)
 
 
 def stripe_envelope(velocity, lam: float, ang: float, sigma: float = 80.0):
@@ -209,7 +238,9 @@ def protect_weight(velocity, lo_pct: float = 95.0, hi_pct: float = 99.5,
 
 
 def second_pass(before, after, peaks: Sequence[Tuple[float, float]],
-                ratio_threshold: float = 0.4, sigma: float = 40.0):
+                ratio_threshold: float = 0.4, sigma: float = 40.0,
+                prepared_before=None, prepared_after=None,
+                width: float = 0.45):
     """Subtract residual stripe peaks, but only where they survived.
 
     ``ratio_threshold`` is the smallest after/before stripe RMS ratio that
@@ -217,31 +248,39 @@ def second_pass(before, after, peaks: Sequence[Tuple[float, float]],
     """
     extra = np.zeros_like(np.asarray(before, dtype=np.float64))
     ratios: Dict[Tuple[float, float], float] = {}
-    for lam, ang in peaks:
-        b1 = stripe_band(before, lam, ang, 0.30)
-        b2 = stripe_band(after, lam, ang, 0.30)
-        s1 = float(np.nanstd(b1))
-        ratio = float(np.nanstd(b2)) / s1 if s1 > 0 else 0.0
-        ratios[(float(lam), float(ang))] = ratio
-        if ratio <= ratio_threshold:
-            continue
-        amp = np.sqrt(gaussian_filter(b2 * b2, sigma))
-        p99 = float(np.nanpercentile(amp, 99))
-        if p99 <= 0:
-            continue
-        w = np.clip(amp / (0.5 * p99), 0.0, 1.0)
-        w = gaussian_filter(w, 10)
-        extra += w * b2
+    if peaks:
+        # one transform per map, reused for every wave vector
+        F_before, tap_b, finite_b = (prepared_before if prepared_before is not None
+                                     else _prepared(before))
+        F_after, tap_a, finite_a = (prepared_after if prepared_after is not None
+                                    else _prepared(after))
+        for lam, ang in peaks:
+            b1 = _finish(_notch_spectrum(F_before, finite_b.shape, lam, ang, width), tap_b)
+            b2 = _finish(_notch_spectrum(F_after, finite_a.shape, lam, ang, width), tap_a)
+            s1 = float(np.nanstd(b1))
+            ratio = float(np.nanstd(b2)) / s1 if s1 > 0 else 0.0
+            ratios[(float(lam), float(ang))] = ratio
+            if ratio <= ratio_threshold:
+                continue
+            amp = np.sqrt(gaussian_filter(b2 * b2, sigma))
+            p99 = float(np.nanpercentile(amp, 99))
+            if p99 <= 0:
+                continue
+            w = np.clip(amp / (0.5 * p99), 0.0, 1.0)
+            w = gaussian_filter(w, 10)
+            extra += w * b2
     return extra, ratios
 
 
 # ---------------------------------------------------------------------------
 # automatic stripe detection
 # ---------------------------------------------------------------------------
-def detect_stripe_peaks(velocity, *, lambda_min: float = 25.0,
-                        lambda_max: float = 150.0, topn: int = 2,
+def detect_stripe_peaks(velocity, *, lambda_min: float = 30.0,
+                        lambda_max: float = 1500.0, topn: int = 2,
                         min_contrast: float = 8.0,
-                        max_peaks: int = 12) -> Tuple[Tuple[float, float], ...]:
+                        max_peaks: int = 12, prepared=None,
+                        angle_tolerance: float = 10.0
+                        ) -> Tuple[Tuple[float, float], ...]:
     """Find the strongest parallel-stripe wave vectors in a velocity map.
 
     The 2-D power spectrum is computed on a tapered map, local maxima are
@@ -258,9 +297,13 @@ def detect_stripe_peaks(velocity, *, lambda_min: float = 25.0,
     finite = np.isfinite(d)
     if finite.sum() < 4 * 64:
         return ()
-    tap = _taper(finite)
-    a = np.where(finite, np.nan_to_num(d), 0.0) * tap
-    P = np.abs(np.fft.fftshift(np.fft.fft2(a))) ** 2
+    if prepared is not None:
+        F = prepared[0]
+    else:
+        tap = _taper(finite)
+        a = np.where(finite, np.nan_to_num(d), 0.0) * tap
+        F = np.fft.fftshift(np.fft.fft2(a))
+    P = np.abs(F) ** 2
     KX, KY = _k_grid((ny, nx))
     K = np.hypot(KX, KY)
     with np.errstate(divide="ignore"):
@@ -281,6 +324,7 @@ def detect_stripe_peaks(velocity, *, lambda_min: float = 25.0,
     order = np.argsort(powers)[::-1]
     peaks = []
     seen = set()
+    dominant = None
     for i in order:
         if len(peaks) >= int(topn):
             break
@@ -289,6 +333,11 @@ def detect_stripe_peaks(velocity, *, lambda_min: float = 25.0,
         # a stripe at angle and at angle + 180 degrees is the same stripe
         angle = float(np.degrees(np.arctan2(KY[j, k], KX[j, k])))
         angle = (angle + 90.0) % 180.0 - 90.0
+        # the fringes are parallel, so every vector must share one orientation
+        if dominant is None:
+            dominant = angle
+        elif abs(((angle - dominant + 90.0) % 180.0) - 90.0) > float(angle_tolerance):
+            continue
         key = (round(lam0, 1), round(angle, 1))
         if key in seen:
             continue
@@ -306,17 +355,29 @@ def scan_correction(velocity, header, *, enabled: bool = True,
                     stripe_peaks: Optional[Iterable[Sequence[float]]] = None,
                     stripe_mode: str = "band",
                     lambda_min: float = 25.0, lambda_max: float = 150.0,
-                    topn: int = 2, band_width: float = 0.30,
+                    topn: int = 3, band_width: float = 0.45,
                     envelope_sigma: float = 80.0,
                     second_peaks: Optional[Iterable[Sequence[float]]] = None,
                     second_ratio: float = 0.4,
+                    second_auto: bool = True,
+                    flat_strength: float = 1.0,
                     protect: Optional[Sequence[float]] = None,
+                    protect_sigma: float = 8.0,
+                    protect_smooth: float = 12.0,
                     spec_line: str = "") -> ScanCorrection:
     """Compute ``V_SS`` and ``V_LOCAL`` for one residual map.
 
     ``stripe_peaks`` given explicitly is used as is; otherwise the wave vectors
     are detected from the map.  ``protect`` is ``(lo_pct, hi_pct, strength)`` and
     defaults to the preset for the spectral line.
+
+    The strength of the flat-field removal is controlled by ``band_width`` (how
+    wide the notch is in units of the central wavenumber), ``topn`` (how many
+    stripe wave vectors are removed), ``second_auto`` (re-detect and remove what
+    survived the first pass) and ``flat_strength`` (a final multiplier on the
+    template).  ``protect_sigma`` smooths the velocity before the protection
+    threshold is applied and ``protect_smooth`` dilates the protected area, so
+    the active regions are spared over a larger footprint than the raw blob.
     """
     d = np.asarray(velocity, dtype=np.float64)
     finite = np.isfinite(d)
@@ -342,32 +403,60 @@ def scan_correction(velocity, header, *, enabled: bool = True,
     flat_raw = zeros
     ratios: Dict[Tuple[float, float], float] = {}
     if stripe_removal:
+        # One spectrum of the residual serves detection, the first band-stop and
+        # the second pass, so the heavy 2-D FFT is done once per map.
+        prepared = _prepared(residual)
         if stripe_peaks:
             peaks = tuple((float(a), float(b)) for a, b in stripe_peaks)
         else:
             peaks = detect_stripe_peaks(residual, lambda_min=lambda_min,
-                                        lambda_max=lambda_max, topn=topn)
+                                        lambda_max=lambda_max, topn=topn,
+                                        prepared=prepared)
         if peaks:
-            for lam, ang in peaks:
-                if stripe_mode == "envelope":
+            if stripe_mode == "envelope":
+                for lam, ang in peaks:
                     flat_raw = flat_raw + stripe_envelope(
                         residual, lam, ang, envelope_sigma)
-                else:
-                    flat_raw = flat_raw + stripe_band(
-                        residual, lam, ang, band_width)
+            else:
+                flat_raw = stripe_bands(residual, peaks, band_width,
+                                        prepared=prepared)
+            after = residual - flat_raw
+            prepared_after = _prepared(after)
+
+            # explicit peaks: per-vector ratio test, as in the reference code
             if second_peaks:
                 extra, ratios = second_pass(
-                    residual, residual - flat_raw,
+                    residual, after,
                     [(float(a), float(b)) for a, b in second_peaks],
-                    ratio_threshold=second_ratio)
+                    ratio_threshold=second_ratio, width=band_width,
+                    prepared_before=prepared, prepared_after=prepared_after)
                 flat_raw = flat_raw + extra
+
+            # automatic second pass: whatever is still visible in the spectrum
+            # of the corrected map is removed with a local amplitude weight
+            if second_auto and stripe_mode != "envelope":
+                residual_peaks = detect_stripe_peaks(
+                    after, lambda_min=lambda_min, lambda_max=lambda_max,
+                    topn=topn, prepared=prepared_after)
+                residual_peaks = tuple(p for p in residual_peaks
+                                       if p not in peaks)
+                if residual_peaks:
+                    bands = stripe_bands(after, residual_peaks, band_width,
+                                         prepared=prepared_after)
+                    amp = np.sqrt(gaussian_filter(bands * bands, 40.0))
+                    p99 = float(np.nanpercentile(amp, 99)) if np.isfinite(amp).any() else 0.0
+                    if p99 > 0:
+                        w2 = np.clip(amp / (0.5 * p99), 0.0, 1.0)
+                        w2 = gaussian_filter(w2, 10)
+                        flat_raw = flat_raw + w2 * bands
+                        ratios.update({p: 1.0 for p in residual_peaks})
 
     # 3) protect active regions and assemble
     lo, hi, strength = (tuple(protect) if protect is not None
                         else PROTECTION_PRESETS.get(str(spec_line).upper(),
                                                     DEFAULT_PROTECTION))
-    weight = protect_weight(d, lo, hi, strength)
-    flat = weight * flat_raw
+    weight = protect_weight(d, lo, hi, strength, protect_sigma, protect_smooth)
+    flat = float(flat_strength) * weight * flat_raw
     ss = saddle + flat
     local = np.where(finite, d - ss, np.nan)
     return ScanCorrection(

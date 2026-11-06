@@ -390,6 +390,7 @@ def _fake_layers(n=64, ny=48):
         "V_OFFSET": np.full((ny, n), -0.8394, dtype=np.float32),
         "V_LARGE": rng.normal(0, 1.0, (ny, n)).astype(np.float32),
         "V_LOCAL": rng.normal(0, 0.85, (ny, n)).astype(np.float32),
+        "V_SS": rng.normal(0, 0.10, (ny, n)).astype(np.float32),
         "V_RESID": rng.normal(0, 0.9, (ny, n)).astype(np.float32),
         "V_MODEL_ERR": np.abs(rng.normal(0, 0.01, (ny, n))).astype(np.float32),
         "MASK_ACTIVE": (rng.random((ny, n)) > 0.99).astype(np.uint8),
@@ -800,7 +801,10 @@ def test_joint_grid_rows_and_figure(tmp_path):
 
     rows = joint_grid_rows(ha, fe)
     assert len(rows) == 2                     # one row per line
-    assert all(len(r.panels) == 4 for r in rows)
+    # V_LOS, V_diffrot, V_OTHER, V_SS, V_local
+    assert all(len(r.panels) == 5 for r in rows)
+    assert rows[0].panels[3].label == r"$V_{\rm SS}$"
+    assert rows[0].panels[4].label == r"$V_{\rm local}$"
     assert "H" in rows[0].time and "Fe" in rows[1].time
 
     # the third column is the algebraic sum of the three small terms
@@ -810,6 +814,35 @@ def test_joint_grid_rows_and_figure(tmp_path):
     assert np.allclose(rows[0].panels[2].data, expected)
 
     out = plot_joint_grid(ha, fe, str(tmp_path / "grid.png"), dpi=60)
+    assert os.path.exists(out) and os.path.getsize(out) > 5000
+
+
+def test_joint_grid_drops_the_vss_column_when_absent(tmp_path):
+    """Older products carry only V_RESID; the figure must still be produced."""
+    pytest.importorskip("matplotlib")
+    from solar_chromosphere_velocity.plotting_grid import (
+        JOINT_LAYERS, joint_grid_rows, plot_joint_grid, read_product)
+
+    ha, fe = _write_joint_pair(tmp_path)
+    # rewrite both products without V_SS, as a pre-2.3 product would be
+    from astropy.io import fits
+    from solar_chromosphere_velocity.output import write_multihdu
+    layers = _fake_layers()
+    layers.pop("V_SS", None)
+    layers.pop("V_LOCAL", None)      # keep only the level-0.5 residual
+    for path in (ha, fe):
+        hdr = fits.Header()
+        hdr["OBSTIME"] = os.path.basename(path)[:15]
+        write_multihdu(path, layers, hdr, None,
+                       {"CDELT1": 1.04, "CDELT2": 1.04, "CX": 32.0,
+                        "CY": 24.0, "R_SUN": 28.0})
+        _, got = read_product(path, names=JOINT_LAYERS)
+        assert "V_SS" not in got and "V_LOCAL" not in got
+
+    rows = joint_grid_rows(ha, fe)
+    assert all(len(r.panels) == 4 for r in rows)
+    assert rows[0].panels[3].label == r"$V_{\rm resid}$"
+    out = plot_joint_grid(ha, fe, str(tmp_path / "old.png"), dpi=60)
     assert os.path.exists(out) and os.path.getsize(out) > 5000
 
 
