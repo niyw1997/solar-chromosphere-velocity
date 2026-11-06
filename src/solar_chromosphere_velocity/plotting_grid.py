@@ -298,11 +298,18 @@ def plot_map_grid(rows: Sequence[Row], out: str, *, dpi: int = 300,
                   show_time: bool = True,
                   row_labels: bool = False,
                   unit: Optional[str] = "v (km/s)",
+                cbar_per_row: bool = True,
                   verbose: bool = False) -> str:
     """Draw a ``rows x columns`` grid of maps and save it to ``out``.
 
     ``x_tick_labels`` / ``y_tick_labels`` accept ``"first"``, ``"all"`` or
     ``"none"``.  All panels must share the same view limits.
+
+    ``cbar_per_row`` draws one colour bar row per data row.  That is required
+    whenever the rows carry their own scales, which happens as soon as a line
+    has a fixed limit (Fe I ``V_LOCAL`` at ``+/-0.5`` km/s against ``+/-1.5``
+    for H-alpha); with only the first row's bars drawn, the lower rows silently
+    read against the wrong scale.
     """
     _, plt = _require_mpl()
     from matplotlib.cm import ScalarMappable
@@ -352,15 +359,19 @@ def plot_map_grid(rows: Sequence[Row], out: str, *, dpi: int = 300,
     if row_labels and any(r.label for r in rows):
         left += 0.50 * font_scale
 
+    # every row that gets its own colour bar needs that strip of space above it
+    bar_rows = list(range(nrow)) if cbar_per_row else [0]
+    inter = (top + gap_in) if (cbar_per_row and nrow > 1) else 0.0
+
     fig_w = left + ncol * pw + (ncol - 1) * gap_in + right_margin_in
-    fig_h = bottom + nrow * ph + (nrow - 1) * gap_in + top
+    fig_h = bottom + nrow * ph + (nrow - 1) * (gap_in + inter) + top
     fig = plt.figure(figsize=(fig_w, fig_h))
 
     # ---- panels -----------------------------------------------------------
     for i, row in enumerate(rows):
         for j, panel in enumerate(row.panels):
             x_in = left + j * (pw + gap_in)
-            y_in = bottom + (nrow - 1 - i) * (ph + gap_in)
+            y_in = bottom + (nrow - 1 - i) * (ph + gap_in + inter)
             ax = fig.add_axes([x_in / fig_w, y_in / fig_h,
                                pw / fig_w, ph / fig_h])
             ax.imshow(np.ma.masked_invalid(panel.data), origin="lower",
@@ -432,32 +443,34 @@ def plot_map_grid(rows: Sequence[Row], out: str, *, dpi: int = 300,
                         bbox=dict(boxstyle="round,pad=0.16", facecolor="white",
                                   edgecolor="0.55", linewidth=0.5, alpha=0.92))
 
-    # ---- one colour bar per column, above the first row -------------------
-    y_cbar = bottom + nrow * ph + (nrow - 1) * gap_in + cbar_gap_in
-    for j in range(ncol):
-        x_in = left + j * (pw + gap_in)
-        cax = fig.add_axes([(x_in + 0.07 * pw) / fig_w, y_cbar / fig_h,
-                            0.86 * pw / fig_w, cbar_height_in / fig_h])
-        panel = rows[0].panels[j]
-        lo, hi = float(panel.vmin), float(panel.vmax)
-        ticks = [lo, 0.0, hi] if lo < 0 < hi else [lo, 0.5 * (lo + hi), hi]
-        mappable = ScalarMappable(norm=Normalize(vmin=lo, vmax=hi),
-                                  cmap=plt.get_cmap(panel.cmap))
-        mappable.set_array([])
-        cb = fig.colorbar(mappable, cax=cax, orientation="horizontal",
-                          ticks=ticks)
-        cb.ax.xaxis.set_ticks_position("top")
-        cb.ax.xaxis.set_label_position("top")
-        cb.ax.tick_params(labelsize=cbar_pt, length=3.0, width=1.2, pad=2.0)
-        cb.outline.set_linewidth(0.7 * font_scale)
-        if unit:
-            cb.set_label(unit, fontsize=unit_pt, labelpad=4.0)
+    # ---- one colour bar per column, above each row that needs its own -------
+    for i in bar_rows:
+        y_row = bottom + (nrow - 1 - i) * (ph + gap_in + inter)
+        y_cbar = y_row + ph + cbar_gap_in
+        for j in range(ncol):
+            x_in = left + j * (pw + gap_in)
+            cax = fig.add_axes([(x_in + 0.07 * pw) / fig_w, y_cbar / fig_h,
+                                0.86 * pw / fig_w, cbar_height_in / fig_h])
+            panel = rows[i].panels[j]
+            lo, hi = float(panel.vmin), float(panel.vmax)
+            ticks = [lo, 0.0, hi] if lo < 0 < hi else [lo, 0.5 * (lo + hi), hi]
+            mappable = ScalarMappable(norm=Normalize(vmin=lo, vmax=hi),
+                                      cmap=plt.get_cmap(panel.cmap))
+            mappable.set_array([])
+            cb = fig.colorbar(mappable, cax=cax, orientation="horizontal",
+                              ticks=ticks)
+            cb.ax.xaxis.set_ticks_position("top")
+            cb.ax.xaxis.set_label_position("top")
+            cb.ax.tick_params(labelsize=cbar_pt, length=3.0, width=1.2, pad=2.0)
+            cb.outline.set_linewidth(0.7 * font_scale)
+            if unit:
+                cb.set_label(unit, fontsize=unit_pt, labelpad=4.0)
 
     if row_labels and any(r.label for r in rows):
         for i, row in enumerate(rows):
             if not row.label:
                 continue
-            y_in = bottom + (nrow - 1 - i) * (ph + gap_in) + ph / 2.0
+            y_in = bottom + (nrow - 1 - i) * (ph + gap_in + inter) + ph / 2.0
             fig.text(0.25 * font_scale / fig_w, y_in / fig_h, row.label,
                      rotation=90, ha="center", va="center",
                      fontsize=row_pt, fontweight="semibold")
