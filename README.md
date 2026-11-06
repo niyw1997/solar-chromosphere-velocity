@@ -296,8 +296,11 @@ $$C_p(k) = \sum_{j=0}^{L-1} \tilde S_p(j)\, \tilde T(j-k)$$
 is evaluated for the whole strip by FFT. The peak `k*` is refined to sub-pixel
 accuracy by the three-point parabola
 
-$$x = \frac{C_p(k^*-1) - C_p(k^*+1)}{2\bigl[C_p(k^*-1) - 2C_p(k^*) + C_p(k^*+1)\bigr]},
-\qquad \delta_p = (k^* + x) - \lfloor L/2 \rfloor,$$
+$$
+x = \frac{C_p(k^{\ast}-1) - C_p(k^{\ast}+1)}
+         {2\bigl[C_p(k^{\ast}-1) - 2C_p(k^{\ast}) + C_p(k^{\ast}+1)\bigr]},
+\qquad \delta_p = (k^{\ast} + x) - \lfloor L/2 \rfloor,
+$$
 
 with `x` clipped to ±0.5 pixels (`limit_subpixel_shift`). The velocity follows
 from the dispersion,
