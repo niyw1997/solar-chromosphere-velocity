@@ -264,7 +264,7 @@ The reference profile is the mean profile within `reference_profile_radius` pixe
 of disk centre.  A Gaussian fit around the local minimum fixes the line centre.
 The wavelength solution
 
-$$\lambda(i) = \mathrm{CRVAL3} + \bigl(i - (\mathrm{CRPIX3}-1)\bigr)\,\mathrm{CDELT3}$$
+$$\lambda(i) = \mathrm{CRVAL3} + \bigl(i - (\mathrm{CRPIX3}-1)\bigr)\mathrm{CDELT3}$$
 
 serves only as a *hint*: in level-1 files it departs from the data by up to
 ~1.4 pixels (~3 km/s).
@@ -276,7 +276,7 @@ correlation_half_width`, the reference is `T(j) = Ibar(i0 - w + j)`; each pixel'
 window `S_p(j)` is mean-subtracted (`continuum_subtraction`) to cancel the
 continuum slope.  The circular cross-correlation
 
-$$C_p(k) = \sum_{j=0}^{L-1} \tilde S_p(j)\, \tilde T(j-k)$$
+$$C_p(k) = \sum_{j=0}^{L-1} \tilde S_p(j) \tilde T(j-k)$$
 
 runs over the whole strip by FFT.  A three-point parabola refines the peak `k*` to
 sub-pixel accuracy,
@@ -290,8 +290,8 @@ $$
 with `x` clipped to ±0.5 pixels (`limit_subpixel_shift`).  The dispersion gives the
 velocity,
 
-$$\kappa = \frac{c\,\mathrm{CDELT3}}{\lambda_0},
-\qquad V_{\mathrm{LOS}}(p) = \delta_p\,\kappa .$$
+$$\kappa = \frac{c\mathrm{CDELT3}}{\lambda_0},
+\qquad V_{\mathrm{LOS}}(p) = \delta_p\kappa .$$
 
 For Hα (`CDELT3 = 0.04844 Å`, `λ0 = 6562.82 Å`) this gives `κ ≈ 2.2139 km/s/pixel`;
 `--legacy` keeps v1's hard-coded `1.1068 × 2`.  The sign convention is **redshift
@@ -309,13 +309,13 @@ then the model LOS velocity is
 
 $$
 \begin{aligned}
-V_{\mathrm{model}} =\;
-& s\bigl(A + B\sin^2 B + C\sin^4 B + D\sin^{10}\rho\bigr)\,\mathcal{P}
+V_{\mathrm{model}} =
+& s\bigl(A + B\sin^2 B + C\sin^4 B + D\sin^{10}\rho\bigr)\mathcal{P}
    && \text{differential rotation}\\
-+\;& e\,(1-\cos\rho)^{N} && \text{limb shift}\\
-+\;& \bigl(\mathrm{MC1}\sin B + \mathrm{MC2}\sin 2B\bigr)\,\mathcal{M}
++& e(1-\cos\rho)^{N} && \text{limb shift}\\
++& \bigl(\mathrm{MC1}\sin B + \mathrm{MC2}\sin 2B\bigr)\mathcal{M}
    && \text{meridional circulation}\\
-+\;& G && \text{systemic translation}
++& G && \text{systemic translation}
 \end{aligned}
 $$
 
