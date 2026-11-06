@@ -978,3 +978,31 @@ def test_joint_grid_uses_the_fixed_fe_limit(tmp_path):
     assert len(local) == 2
     assert 0.5 in [round(v, 3) for v in local]          # Fe I row
     assert all(v > 0 for v in local)
+
+
+# ------------------------------------- two-arm blend of the flat field
+def test_blend_stripe_fields_spans_the_two_arms():
+    from solar_chromosphere_velocity.scan_correction import blend_stripe_fields
+    rng = np.random.default_rng(7)
+    weak = rng.normal(0.0, 0.10, (96, 96))
+    strong = 3.0 * weak
+    mid = blend_stripe_fields(strong, weak, mode="mean", weight=0.5, smooth=4.0)
+    assert np.allclose(mid, 0.5 * (strong + weak), atol=1e-6)
+    assert np.allclose(blend_stripe_fields(strong, weak, mode="mean", weight=0.0,
+                                           smooth=4.0), weak, atol=1e-6)
+    assert np.allclose(blend_stripe_fields(strong, weak, mode="mean", weight=1.0,
+                                           smooth=4.0), strong, atol=1e-6)
+
+
+def test_blend_agreement_keeps_the_weak_arm_where_they_differ():
+    from solar_chromosphere_velocity.scan_correction import blend_stripe_fields
+    rng = np.random.default_rng(8)
+    weak = rng.normal(0.0, 0.10, (96, 96))
+    # when the two arms agree the blend is that value, whatever the mode
+    same = blend_stripe_fields(weak, weak, mode="agreement", smooth=4.0)
+    assert np.allclose(same, weak, atol=1e-6)
+    # a strong arm that invents three times as much is largely rejected
+    strong = 3.0 * weak
+    out = blend_stripe_fields(strong, weak, mode="agreement", smooth=6.0)
+    assert np.nanstd(out) < 0.6 * np.nanstd(strong)
+    assert np.corrcoef(out.ravel(), weak.ravel())[0, 1] > 0.9
