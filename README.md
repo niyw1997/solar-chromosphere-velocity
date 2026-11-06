@@ -383,16 +383,16 @@ contract.
 
 ## Scan-saddle and flat-field removal
 
-Two systematics outlive the nine-parameter flow model.  Both are removed before the
-product is written:
+Two systematics outlive the nine-parameter flow model, a raster scan-saddle and a set
+of parallel fringes.  Both are removed before the product is written:
 
-$$V_{SS} = V_{\rm scan\_saddle} + V_{\rm flat}, \qquad
+$$V_{SS} = V_{\rm saddle} + V_{\rm flat}, \qquad
   V_{\rm local} = V_{\rm resid} - V_{SS}$$
 
 **Scan saddle.** A full-disk quadratic, least-squares fitted over every finite pixel
 in normalised disk coordinates `X = (x - xc) / R_sun` and `Y = (y - yc) / R_sun`:
 
-$$V_{\rm scan\_saddle} = c_0 + c_1 Y + c_2 Y^2 + c_3 X + c_4 XY + c_5 X^2$$
+$$V_{\rm saddle} = c_0 + c_1 Y + c_2 Y^2 + c_3 X + c_4 XY + c_5 X^2$$
 
 It absorbs the raster scan-saddle and any zero-point gradient the flow model cannot
 represent.
