@@ -443,17 +443,6 @@ Everything is recorded in `PRIMARY` (`SCANCORR`, `SCSTRIPE`, `SCQUADF`,
 `--no-scan-correction`, `--no-scan-saddle` and `--no-stripe-removal` switch it
 off or partly off.
 
-![Scan removal, 2025-11-11](docs/figs/scan_correction_20251111.png)
-
-*The step by step, H-alpha on top and Fe I below: the level-1 residual, the
-quadratic, the flat-field stripes, their sum `V_SS`, and the local velocity that
-remains.  The fringes are parallel and run at -45 degrees.*
-
-![Two-arm blend, 2025-11-11](docs/figs/two_arm_blend_20251111.png)
-
-*A hard and a soft arm and the equal-weight blend between them, with the three
-flat-field columns on a common scale so the strength difference is readable.*
-
 ## Joint H-alpha + Fe I figure
 
 When one run processes both spectral lines, the standard product is **one figure

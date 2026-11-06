@@ -636,6 +636,21 @@ asked for.  Every quantity used is recorded in \code{PRIMARY}
 the fact.  \code{--no-scan-correction} disables the step,
 \code{--no-scan-saddle} and \code{--no-stripe-removal} disable one term each.
 
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{figs/scan_correction_20251111.png}
+\caption{The removal step by step on 2025-11-11 09:54\,UT, H$\alpha$ in the upper
+row and Fe\,\textsc{i} in the lower one: the level-1 residual, the quadratic
+$V_{\mathrm{scan\_saddle}}$, the flat-field term, their sum $V_{SS}$, and the
+local velocity that remains.  The fringes are parallel and run at $-45^\circ$,
+and they are the same pattern in both lines, which is what identifies them as an
+instrumental term rather than as a velocity field, and it is wide enough to be
+separated from the flow.}
+\label{fig:scan-correction}
+\end{figure}
+
+
+
 
 % ===========================================================================
 \section{Streaming and parallel framework}
