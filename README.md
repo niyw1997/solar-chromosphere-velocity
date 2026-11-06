@@ -46,7 +46,7 @@ parameters.
 
 ## What is new
 
-### 2.4 — the right scales, and one colour scale per line
+### 2.4 — the right fringe scales
 
 The stripe search was looking in the wrong place.  The fringes are
 full-image-scale, parallel and spatially low-frequency, so the wavelength window
@@ -56,9 +56,7 @@ On 2025-11-11 that finds 326 px at -45 degrees for H-alpha and 544 px for Fe I,
 the same fringes that per-event tuning had identified, where the old window was
 locking onto genuine mid-stream structure.  A second pass is now opt-in.
 
-`V_SS` gained a column in the joint grid, and `V_LOCAL` uses one fixed colour
-scale per line, `+/-0.5 km/s` for Fe I and `+/-1.5` for H-alpha, so the same
-quantity no longer changes scale between figures.  `blend_stripe_fields()` and
+`V_SS` gained a column in the joint grid.  `blend_stripe_fields()` and
 `scan_correction_two_arm()` add a hard/soft two-arm blend, not yet wired into the
 default pipeline.
 
@@ -493,9 +491,7 @@ off or partly off.
 
 *The step by step, H-alpha on top and Fe I below: the level-1 residual, the
 quadratic, the flat-field stripes, their sum `V_SS`, and the local velocity that
-remains.  Each column carries its own colour bar, which is what makes the terms
-visible against a residual ten times larger.  The fringes are parallel and run at
--45 degrees.*
+remains.  The fringes are parallel and run at -45 degrees.*
 
 ![Two-arm blend, 2025-11-11](docs/figs/two_arm_blend_20251111.png)
 
@@ -509,33 +505,13 @@ per observation time**: one row per line, one column per physical component.
 
 ![joint H-alpha and Fe I component grid](docs/figs/joint_grid_20251111.png)
 
-Rows are H-alpha and Fe I at the same observing time; columns are
-`VLOS_OBS`, `V_DIFFROT`, `V_LIMB + V_MERID + V_OFFSET`, `V_SS` and `V_LOCAL`, so
-the five panels of a row read directly as the decomposition of the observed
-velocity field and of the systematics that were removed from it.
-
-The colour scale of `V_LOCAL` is fixed per spectral line rather than taken from
-a percentile, `+/-0.5 km/s` for Fe I and `+/-1.5 km/s` for H-alpha, because the
-Fe I residual is about a third of the H-alpha one.  The same quantity thus keeps
-one scale in every figure, the joint grid, the per-file component plots and the
-overlays alike.  The rule lives in `constants.LOCAL_VELOCITY_LIMIT_KM_S`. The layout is fixed in `plotting_grid.py` so every figure looks the same:
-
-* rows and columns share the same **absolute** gap in inches, and every panel
-  keeps the data aspect, so no extra whitespace appears between columns;
-* thick frames, panel letters `(a)`–`(h)` upper-left and the component name
-  upper-right;
-* one horizontal colour bar per column, above the first row, with its title and
-  tick labels above the bar;
-* axis titles on the bottom row and the first column, tick labels on the first
-  column only, tick marks on every bottom/left panel, so large fonts never
-  collide across columns;
-* the observing time in the lower-right corner of the first panel of each row,
-  and the median `V_OFFSET` annotated in the third column;
-* the third column is a sum of three small terms and is scaled to the 99.5th
-  percentile of both lines together, while columns 1, 2 and 4 use fixed
-  `±3`, `±2` and `±1.5 km/s`;
-* the view is derived from `R_SUN` and `CDELT1`, so the framing adapts to the
-  instrument instead of being tied to one data set.
+Rows are H-alpha and Fe I at the same observing time; columns are `VLOS_OBS`,
+`V_DIFFROT`, `V_LIMB + V_MERID + V_OFFSET`, `V_SS` and `V_LOCAL`, so the five
+panels of a row read directly as the decomposition of the observed velocity field
+and of the systematics removed from it.  The third column sums three small terms
+and is therefore an order of magnitude smaller than the others; the view is
+derived from `R_SUN` and `CDELT1`, so the framing follows the instrument rather
+than one data set.
 
 Produce it during a run over both lines:
 

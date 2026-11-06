@@ -41,15 +41,13 @@ SPECLINE_ALIASES = {
     "FE I": "FEI",
 }
 
-# Fixed colour limits (km/s) for V_LOCAL, per spectral line.  Fe I residuals run
-# about a third of the H-alpha ones, so an automatic percentile makes the same
-# quantity look unrelated from one figure to the next; a fixed scale keeps every
-# display of it comparable.
+#: Per-line limits for V_LOCAL, in km/s.  Fe I residuals are about a third of the
+#: H-alpha ones, so a percentile drawn from the data is not comparable between lines.
 LOCAL_VELOCITY_LIMIT_KM_S = {"FEI": 0.5}
 
 
 def local_velocity_limit_km_s(spec_line):
-    """Fixed colour limit for V_LOCAL in km/s, or ``None`` if the line has none."""
+    """Limit for V_LOCAL in km/s for this line, or ``None`` if it has no entry."""
     key = str(spec_line or "").strip().upper()
     key = SPECLINE_ALIASES.get(key, key)
     return LOCAL_VELOCITY_LIMIT_KM_S.get(key)

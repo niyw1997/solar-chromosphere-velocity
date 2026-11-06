@@ -6,26 +6,11 @@ the same observation time: one row per line, one column per physical component.
     (a) V_LOS   (b) V_diffrot   (c) V_limb+V_merid+V_offset   (d) V_resid
     (e) V_LOS   (f) V_diffrot   (g) V_limb+V_merid+V_offset   (h) V_resid
 
-Layout rules (fixed here so every figure looks the same):
-
-* rows and columns are separated by the **same absolute** gap in inches;
-* each panel is a full 2-D map with a fixed data aspect, so the axes box is
-  sized to the data and ``set_aspect('equal')`` introduces no extra whitespace;
-* axes frames are thick; the panel letter sits in the upper-left corner and the
-  component name in the upper-right corner;
-* one horizontal colour bar per column, placed *above* the first row, with its
-  title and tick labels above the bar;
-* the x axis title is set on the bottom row and the y axis title on the first
-  column; tick *labels* appear only on the first column, while tick marks stay
-  on every bottom/left panel, so large fonts never collide across columns;
-* the observing time sits in the lower-right corner of the first panel of each
-  row, and the third column carries the median ``V_OFFSET`` as an annotation;
-* the canvas is sized from the requested font scale, panel height and margins,
-  so no text is clipped.
-
-The colour scale of the first, second and fourth columns is fixed (+-3, +-2 and
-+-1.5 km/s), while the third column (a sum of three small terms) is scaled to the
-99.5th percentile of the two lines together.
+Each panel is one physical quantity for one spectral line, and a row is one
+observing time; rows therefore compare the two lines against each other.  The
+third column sums three small terms and is an order of magnitude smaller than the
+others.  The view limits are derived from ``R_SUN`` and ``CDELT1``, so the framing
+follows the instrument rather than one data set.
 
 matplotlib is imported lazily so the package still imports without it.
 """
@@ -305,11 +290,8 @@ def plot_map_grid(rows: Sequence[Row], out: str, *, dpi: int = 300,
     ``x_tick_labels`` / ``y_tick_labels`` accept ``"first"``, ``"all"`` or
     ``"none"``.  All panels must share the same view limits.
 
-    ``cbar_per_row`` draws one colour bar row per data row.  That is required
-    whenever the rows carry their own scales, which happens as soon as a line
-    has a fixed limit (Fe I ``V_LOCAL`` at ``+/-0.5`` km/s against ``+/-1.5``
-    for H-alpha); with only the first row's bars drawn, the lower rows silently
-    read against the wrong scale.
+    ``cbar_per_row`` draws one scale row per data row, which is needed whenever
+    the rows carry their own limits.
     """
     _, plt = _require_mpl()
     from matplotlib.cm import ScalarMappable
@@ -359,7 +341,7 @@ def plot_map_grid(rows: Sequence[Row], out: str, *, dpi: int = 300,
     if row_labels and any(r.label for r in rows):
         left += 0.50 * font_scale
 
-    # every row that gets its own colour bar needs that strip of space above it
+    # every row that carries its own scale needs that strip of space above it
     bar_rows = list(range(nrow)) if cbar_per_row else [0]
     inter = (top + gap_in) if (cbar_per_row and nrow > 1) else 0.0
 
@@ -443,7 +425,7 @@ def plot_map_grid(rows: Sequence[Row], out: str, *, dpi: int = 300,
                         bbox=dict(boxstyle="round,pad=0.16", facecolor="white",
                                   edgecolor="0.55", linewidth=0.5, alpha=0.92))
 
-    # ---- one colour bar per column, above each row that needs its own -------
+    # ---- one scale row per column, above each row that needs its own --------
     for i in bar_rows:
         y_row = bottom + (nrow - 1 - i) * (ph + gap_in + inter)
         y_cbar = y_row + ph + cbar_gap_in

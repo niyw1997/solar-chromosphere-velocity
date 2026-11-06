@@ -21,12 +21,6 @@
   row reads `V_LOS`, `V_diffrot`, `V_limb+V_merid+V_offset`, `V_SS`, `V_local`.
   Products carry the scan terms whenever `--joint-grid` is on, so the column is
   always available, and older products without `V_SS` fall back to four columns.
-- **The `V_LOCAL` colour scale is fixed per spectral line**, `+/-0.5 km/s` for
-  Fe I and `+/-1.5` for H-alpha, instead of a percentile.  The Fe I residual is
-  about a third of the H-alpha one, and an automatic limit made the same quantity
-  look unrelated from one figure to the next.  The rule lives in
-  `constants.LOCAL_VELOCITY_LIMIT_KM_S` and is honoured by the per-file component
-  plots, the joint grid and the overlays alike.
 
 ### Added
 
@@ -37,13 +31,6 @@
   recovers most of that while still removing 1.4 to 2.1 times more than the soft
   arm.  The `agreement` weighting turned out to collapse back onto the soft arm,
   so the mean weighting is the useful one.  Not wired into the default pipeline.
-
-### Fixed
-
-- `plot_map_grid()` drew one colour bar per column above the first row only, so
-  as soon as the rows carried different scales the lower row silently read
-  against the wrong one.  It now draws a bar row above every data row
-  (`cbar_per_row`), so every row reads against its own scale.
 
 ## 2.3.0
 
@@ -93,18 +80,16 @@ protection weight, `V_SS` and the corrected residual all agree to `max|Δ| <
 - **Joint H-alpha + Fe I component grid** (`plotting_grid.py`): the standard
   product of a run that processes both spectral lines.  One figure per
   observation time, one row per line and one column per physical component
-  (`V_LOS`, `V_diffrot`, `V_limb + V_merid + V_offset`, `V_resid`), with a
-  horizontal colour bar per column above the first row, panel letters, the
-  observing time and the median `V_offset` annotated, and a layout fixed in code
-  (equal absolute row/column gaps, panels sized from the data aspect, view
-  limits derived from `R_SUN` and `CDELT1`).
+  (`V_LOS`, `V_diffrot`, `V_limb + V_merid + V_offset`, `V_resid`).  The view
+  limits are derived from `R_SUN` and `CDELT1`, so the framing follows the
+  instrument rather than one data set.
 - `scv --joint-grid` (with `--joint-grid-dir`) writes one grid per observation
   time at the end of a directory run; `scripts/plot_joint_ha_fe.py` does the
   same over an existing output tree; `plot_joint_grid`, `find_joint_pairs` and
   `make_joint_series` expose it in Python.  Pairing uses the observation stamp,
   so only times that carry both lines get a figure.
 - Manual section "The joint H-alpha + Fe I product" (English and Chinese
-  editions) and a README section listing the layout rules.
+  editions) and a README section describing the product.
 
 ## 2.0.0
 

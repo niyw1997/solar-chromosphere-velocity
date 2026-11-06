@@ -2,9 +2,9 @@
 
 A v2 product splits the velocity field into physical components; this module
 draws them as **separate subplots in one figure** (and can also write one file
-per component).  Per-panel colour scaling is the default because the components
-differ by orders of magnitude (the differential-rotation term is several km/s,
-the limb term is ~0, the residual is ~1 km/s).
+per component).  The components differ by orders of magnitude (the
+differential-rotation term is several km/s, the limb term is ~0, the residual is
+~1 km/s), so they are not directly comparable panel to panel.
 
 matplotlib is imported lazily, so the package still imports without it.
 
@@ -139,7 +139,7 @@ def _extent_arcsec(header, shape):
 
 
 def _local_limit(header):
-    """Fixed V_LOCAL colour limit for the line in ``header``, or ``None``."""
+    """Per-line limit for V_LOCAL, or ``None`` when the line has no entry."""
     from .constants import local_velocity_limit_km_s
     if not header:
         return None
@@ -237,8 +237,8 @@ def plot_layers(layers: Union[Dict[str, np.ndarray], str], outfile: str, *,
     panels : sequence of str, optional
         Which layers to draw, in order.  Defaults to every panel present.
     per_panel_scale : bool
-        Give each panel its own symmetric colour scale (recommended: the
-        components have very different amplitudes).
+        Scale each panel from its own data (recommended: the components have
+        very different amplitudes).
 
     Returns the path of the written figure.
     """

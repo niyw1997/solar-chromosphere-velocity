@@ -763,10 +763,9 @@ wall time and raise the peak from 0.58\,GB to about 1.5\,GB (three figures) or
 
 The two figures below are real products of this version, drawn by the
 \code{--visualize --plot-per-component} option, and are shown here as a
-reference for what the layer set looks like in practice.  In both cases every
-panel has its own symmetric colour scale, because the components differ by
-orders of magnitude, and the axes are in arcseconds relative to disk centre
-(derived from \code{CDELT1}/\code{CDELT2} and the disk centre).
+reference for what the layer set looks like in practice.  The axes are in
+arcseconds relative to disk centre (derived from \code{CDELT1}/\code{CDELT2} and
+the disk centre), and the components differ by orders of magnitude.
 
 \begin{figure}[htbp]
 \centering
@@ -779,7 +778,7 @@ differential-rotation pattern ($\sigma=0.826$\,km\,s$^{-1}$),
 \code{V\_OFFSET} is uniform at $-0.196$\,km\,s$^{-1}$ and
 \code{V\_LOCAL} (the residual with the scan-saddle and flat-field terms removed) has $\sigma=0.825$\,km\,s$^{-1}$.  The \code{V\_LIMB} panel is
 blank because for this line the fit pins $e$ to its lower bound $e=0$, so the
-layer is identically zero (the colour bar spans $10^{-9}$\,km\,s$^{-1}$); the
+layer is identically zero; the
 parameter is flagged \code{PINNED\_AT\_ZERO} rather than reported as a
 measurement.}
 \label{fig:ha-components}
@@ -795,10 +794,7 @@ change other than the input line: the dispersion gives
 and the output is tagged \code{\_FEI}.  Here $e=0.212$\,km\,s$^{-1}$ is a
 genuine positive fit, so \code{V\_LIMB} shows a real limb-brightening ring
 rather than a blank panel, and the residual is three times smaller
-($\sigma=0.237$\,km\,s$^{-1}$).  Its $V_{\mathrm{local}}$ panel uses a fixed
-colour scale of $\pm0.5$\,km\,s$^{-1}$ instead of a percentile, so this quantity
-keeps one scale in every figure; the H$\alpha$ counterpart uses
-$\pm1.5$\,km\,s$^{-1}$..  This pair of figures illustrates why
+($\sigma=0.237$\,km\,s$^{-1}$).  This pair of figures illustrates why
 identifiability is reported explicitly: the same code flags \code{e} for
 H$\alpha$ and does not flag it for Fe\,\textsc{i}, while $N$ is flagged
 \code{SCAN\_GRID} in both cases.}
@@ -832,37 +828,6 @@ while the other three columns keep the fixed ranges $\pm3$, $\pm2$ and
 $\pm1.5$\,km\,s$^{-1}$ so that the two rows can be compared by eye.}
 \label{fig:joint}
 \end{figure}
-
-\paragraph{Layout rules.}  These are fixed in code, so every figure of a series
-is directly comparable.
-\begin{enumerate}
-  \item Rows and columns are separated by the same \emph{absolute} gap in inches
-        (\code{gap\_in}, default 0.048\,in); relative spacing such as
-        \code{wspace}/\code{hspace} is not used.
-  \item Every panel is sized from the data aspect,
-        $\text{panel width} = \text{aspect}\times\text{panel height}$ with
-        $\text{aspect} = (x_1-x_0)/(y_1-y_0)$, so \code{set\_aspect('equal')}
-        changes nothing and no extra whitespace appears between columns.
-  \item Frames are thick (3.2\,pt); the panel letter \code{(a)}, \code{(b)}, \dots
-        sits in the upper-left corner and the component name in the upper-right.
-  \item One horizontal colour bar per column, placed above the first row, with
-        its title and tick labels above the bar.
-  \item Axis titles are set on the bottom row and on the first column; tick
-        \emph{labels} appear only on the first column, while tick marks stay on
-        every bottom/left panel, so large fonts never collide across columns.
-  \item The observing time is written in the lower-right corner of the first
-        panel of each row, and the median $V_{\rm offset}$ is annotated in the
-        third column.
-  \item The view limits are derived from \code{R\_SUN} and \code{CDELT1} rather
-        than hard-coded: the half width is $1.155\,\Rsun$ and the top of the
-        frame is $(1+0.495)\,\Rsun$, which at $\Rsun = 970$\,arcsec gives
-        $x=\pm1120$ and $y=(-1120,\,1450)$\,arcsec.  The extra room at the top
-        keeps the component name off the disk.
-  \item The canvas is sized from the font scale, the panel height and the
-        margins, so text is never clipped; at \code{font\_scale}$\,=2.5$,
-        \code{panel\_height\_in}$\,=4.75$ the figure is
-        $18.4\times13.0$\,in.
-\end{enumerate}
 
 \paragraph{Pairing and invocation.}  A product is named
 \code{<stamp>\_<LINE>\_scv.fits}, so the observation stamp is the pairing key.
