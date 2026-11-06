@@ -479,7 +479,13 @@ per observation time**: one row per line, one column per physical component.
 Rows are H-alpha and Fe I at the same observing time; columns are
 `VLOS_OBS`, `V_DIFFROT`, `V_LIMB + V_MERID + V_OFFSET`, `V_SS` and `V_LOCAL`, so
 the five panels of a row read directly as the decomposition of the observed
-velocity field and of the systematics that were removed from it. The layout is fixed in `plotting_grid.py` so every figure looks the same:
+velocity field and of the systematics that were removed from it.
+
+The colour scale of `V_LOCAL` is fixed per spectral line rather than taken from
+a percentile, `+/-0.5 km/s` for Fe I and `+/-1.5 km/s` for H-alpha, because the
+Fe I residual is about a third of the H-alpha one.  The same quantity thus keeps
+one scale in every figure, the joint grid, the per-file component plots and the
+overlays alike.  The rule lives in `constants.LOCAL_VELOCITY_LIMIT_KM_S`. The layout is fixed in `plotting_grid.py` so every figure looks the same:
 
 * rows and columns share the same **absolute** gap in inches, and every panel
   keeps the data aspect, so no extra whitespace appears between columns;

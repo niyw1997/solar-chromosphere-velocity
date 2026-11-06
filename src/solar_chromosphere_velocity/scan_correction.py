@@ -463,3 +463,71 @@ def scan_correction(velocity, header, *, enabled: bool = True,
         scan_saddle=saddle, flat=flat, flat_raw=flat_raw, ss=ss, local=local,
         coeffs=coeffs, stripe_peaks=peaks, second_pass_ratios=ratios,
         protect_weight=weight, n_detected=len(peaks), mode=stripe_mode)
+
+
+# ---------------------------------------------------------------------------
+# two-arm combination: a strong and a weak estimate of the same flat field
+# ---------------------------------------------------------------------------
+def blend_stripe_fields(strong, weak, *, mode: str = "agreement",
+                        weight: float = 0.5, smooth: float = 12.0,
+                        prepared_from=None):
+    """Combine a strong and a weak flat-field estimate into one stripe field.
+
+    ``mode="mean"`` averages the two arms with a fixed ``weight`` on the strong
+    one.  ``mode="agreement"`` keeps the strong arm only where it does not add
+    much to the weak one, that is where both agree that a fringe is present, and
+    falls back to the weak arm where the strong one reaches into structure.  The
+    weight is then smoothed with ``smooth`` pixels so the two arms join
+    gradually instead of switching pixel by pixel.
+
+    The weight is built from the *unprotected* templates (``strong``/``weak``
+    should be the raw fields) and applied to the protected pair, so active
+    regions, where both arms vanish, do not bias it.
+    """
+    fs = np.asarray(strong, dtype=np.float64)
+    fw = np.asarray(weak, dtype=np.float64)
+    if mode == "mean":
+        w = np.full(fs.shape, float(weight))
+    elif mode == "agreement":
+        a = np.abs(fw)
+        d = np.abs(fs - fw)
+        w = a ** 2 / (a ** 2 + d ** 2 + 1e-12)
+    else:
+        raise ValueError("blend mode must be 'mean' or 'agreement', got %r" % (mode,))
+    finite = np.isfinite(w)
+    w = gaussian_filter(np.where(finite, w, 0.0), float(smooth))
+    w = np.clip(w, 0.0, 1.0)
+    out = (1.0 - w) * fw + w * fs
+    return np.where(np.isfinite(out), out, np.nan)
+
+
+def scan_correction_two_arm(velocity, header, *, strong=None, weak=None,
+                            mode: str = "agreement", weight: float = 0.5,
+                            smooth: float = 12.0, **kwargs) -> ScanCorrection:
+    """Run the removal twice and blend the two flat-field estimates.
+
+    ``strong`` and ``weak`` are dicts of keyword overrides on top of ``kwargs``;
+    the same wave vectors, protection preset and saddle fit are shared, so the
+    two arms differ only in how hard they remove.
+    """
+    strong = dict(strong or {})
+    weak = dict(weak or {})
+    kw_strong = {**kwargs, **strong}
+    kw_weak = {**kwargs, **weak}
+    hi = scan_correction(velocity, header, enabled=True, **kw_strong)
+    lo = scan_correction(velocity, header, enabled=True, **kw_weak)
+
+    flat_raw = blend_stripe_fields(hi.flat_raw, lo.flat_raw, mode=mode,
+                                   weight=weight, smooth=smooth)
+    wprot = hi.protect_weight
+    flat = wprot * flat_raw
+    saddle = hi.scan_saddle
+    d = np.asarray(velocity, dtype=np.float64)
+    finite = np.isfinite(d)
+    ss = saddle + flat
+    local = np.where(finite, d - ss, np.nan)
+    return ScanCorrection(
+        scan_saddle=saddle, flat=flat, flat_raw=flat_raw, ss=ss, local=local,
+        coeffs=hi.coeffs, stripe_peaks=hi.stripe_peaks,
+        second_pass_ratios=hi.second_pass_ratios, protect_weight=wprot,
+        n_detected=hi.n_detected, mode="%s+%s" % (hi.mode, mode))

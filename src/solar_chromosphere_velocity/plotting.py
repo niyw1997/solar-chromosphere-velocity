@@ -138,6 +138,17 @@ def _extent_arcsec(header, shape):
             (0 - cy) * cd2, (ny - 1 - cy) * cd2]
 
 
+def _local_limit(header):
+    """Fixed V_LOCAL colour limit for the line in ``header``, or ``None``."""
+    from .constants import local_velocity_limit_km_s
+    if not header:
+        return None
+    try:
+        return local_velocity_limit_km_s(header.get("SPECLINE"))
+    except Exception:
+        return None
+
+
 def _draw_panel(ax, name, data, header, *, cmap="bwr", percentile=99.5,
                 per_panel_scale=True, vmin=None, vmax=None, overlay=None,
                 show_colorbar=True):
@@ -161,7 +172,10 @@ def _draw_panel(ax, name, data, header, *, cmap="bwr", percentile=99.5,
             ax.set_xticks([])
             ax.set_yticks([])
             return None
-        if name in _POSITIVE_LAYERS:
+        fixed_local = (_local_limit(header) if name == "V_LOCAL" else None)
+        if fixed_local is not None:
+            lo, hi = -fixed_local, fixed_local
+        elif name in _POSITIVE_LAYERS:
             lo, hi = 0.0, float(np.percentile(finite, percentile))
         elif per_panel_scale and vmin is None and vmax is None:
             lim = float(np.percentile(np.abs(finite), percentile))

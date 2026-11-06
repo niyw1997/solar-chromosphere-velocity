@@ -752,6 +752,7 @@ def _write_joint_pair(tmp_path, stamp="20251111T095427"):
         hdr = fits.Header()
         hdr["OBSTIME"] = stamp
         hdr["SRCFILE"] = "fake_%s.fits" % line
+        hdr["SPECLINE"] = line          # the plotting layer keys off this
         path = str(tmp_path / ("%s_%s_scv.fits" % (stamp, line)))
         write_multihdu(path, _fake_layers(), hdr, None, cards)
         paths[line] = path
@@ -953,3 +954,27 @@ def test_scan_correction_removes_the_systematics_and_keeps_the_blob():
     # the blob survives, because the protection weight damps the flat field
     iy, ix = 45, 45
     assert abs(out.local[iy, ix] - blob[iy, ix]) < 0.6
+
+
+# ------------------------------------- fixed colour limits per spectral line
+def test_fe_local_velocity_has_a_fixed_colour_limit():
+    """Every display of Fe I V_LOCAL uses the same +/-0.5 km/s scale."""
+    from solar_chromosphere_velocity.constants import local_velocity_limit_km_s
+    assert local_velocity_limit_km_s("FEI") == 0.5
+    assert local_velocity_limit_km_s("FE") == 0.5      # alias
+    assert local_velocity_limit_km_s("fe i") == 0.5
+    assert local_velocity_limit_km_s("HA") is None     # H-alpha stays automatic
+    assert local_velocity_limit_km_s("") is None
+
+
+def test_joint_grid_uses_the_fixed_fe_limit(tmp_path):
+    """The joint grid picks the fixed limit for Fe I and the fallback for H-alpha."""
+    pytest.importorskip("matplotlib")
+    from solar_chromosphere_velocity.plotting_grid import joint_grid_rows
+    ha, fe = _write_joint_pair(tmp_path)
+    rows = joint_grid_rows(ha, fe)
+    local = [p.vmax for r in rows for p in r.panels
+             if p.label in (r"$V_{\rm local}$", r"$V_{\rm resid}$")]
+    assert len(local) == 2
+    assert 0.5 in [round(v, 3) for v in local]          # Fe I row
+    assert all(v > 0 for v in local)

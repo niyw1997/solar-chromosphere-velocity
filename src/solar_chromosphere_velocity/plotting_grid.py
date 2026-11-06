@@ -39,6 +39,8 @@ from typing import Dict, Iterable, Optional, Sequence, Tuple
 
 import numpy as np
 
+from .constants import local_velocity_limit_km_s
+
 __all__ = [
     "Panel",
     "Row",
@@ -242,7 +244,13 @@ def joint_grid_rows(ha_path: str, fe_path: str, *, font_scale: float = 2.5,
             key = resid_key if name == "V_LOCAL" else name
             if name == "V_LOCAL":
                 panel_label = resid_label
-            if fixed is not None:
+            # a line with a fixed V_LOCAL limit always uses it, so the same
+            # quantity keeps one scale across every figure
+            fixed_local = (local_velocity_limit_km_s(header.get("SPECLINE"))
+                           if name == "V_LOCAL" else None)
+            if fixed_local is not None:
+                vmax = fixed_local
+            elif fixed is not None:
                 vmax = fixed
             elif name == "V_OTHER":
                 vmax = vmax_other

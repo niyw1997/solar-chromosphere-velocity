@@ -41,6 +41,21 @@ SPECLINE_ALIASES = {
     "FE I": "FEI",
 }
 
+# Fixed colour limits (km/s) for V_LOCAL, per spectral line.  Fe I residuals run
+# about a third of the H-alpha ones, so an automatic percentile makes the same
+# quantity look unrelated from one figure to the next; a fixed scale keeps every
+# display of it comparable.
+LOCAL_VELOCITY_LIMIT_KM_S = {"FEI": 0.5}
+
+
+def local_velocity_limit_km_s(spec_line):
+    """Fixed colour limit for V_LOCAL in km/s, or ``None`` if the line has none."""
+    key = str(spec_line or "").strip().upper()
+    key = SPECLINE_ALIASES.get(key, key)
+    return LOCAL_VELOCITY_LIMIT_KM_S.get(key)
+
+
+
 
 def rest_wavelength(spec_line):
     """Rest wavelength (air, Angstrom) for a FITS SPECLINE value, or None."""
