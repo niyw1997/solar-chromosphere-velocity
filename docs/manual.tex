@@ -35,7 +35,7 @@
        \large Method and Implementation Manual\\[1mm]
        \normalsize Program flow, streaming framework, spectral fitting and
        the velocity model}
-\author{\code{solar-chromosphere-velocity} v2.1}
+\author{\code{solar-chromosphere-velocity} v2.2}
 \date{\today}
 
 \begin{document}
@@ -706,6 +706,74 @@ H$\alpha$ and does not flag it for Fe\,\textsc{i}, while $N$ is flagged
 \end{figure}
 
 % ===========================================================================
+% ===========================================================================
+\section{The joint H$\alpha$ + Fe\,\textsc{i} product}
+\label{sec:joint}
+% ===========================================================================
+
+The standard output of a run that processes both spectral lines is \emph{one
+figure per observation time}: one row per line and one column per physical
+component, so that the four panels of a row read directly as the decomposition
+of the observed velocity field (Figure~\ref{fig:joint}).  The implementation is
+\code{plotting\_grid.py}; it is independent of the CHASE data model and takes
+only 2-D arrays, extents, limits and labels.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{figs/joint_grid_20251111.png}
+\caption{The joint product for 2025-11-11 09:54 UT
+(\code{20251111T095427}).  Row 1 is H$\alpha$, row 2 is Fe\,\textsc{i}, and the
+columns are $V_{\rm LOS}$, $V_{\rm diffrot}$, $V_{\rm limb}+V_{\rm merid}+
+V_{\rm offset}$ and $V_{\rm resid}$.  The median $V_{\rm offset}$ of each line is
+annotated in the third column ($+0.0216$ and $+0.0027$\,km\,s$^{-1}$), and each
+row carries its own observing time.  The third column is a sum of three small
+terms and is therefore scaled to the 99.5th percentile of both lines together,
+while the other three columns keep the fixed ranges $\pm3$, $\pm2$ and
+$\pm1.5$\,km\,s$^{-1}$ so that the two rows can be compared by eye.}
+\label{fig:joint}
+\end{figure}
+
+\paragraph{Layout rules.}  These are fixed in code, so every figure of a series
+is directly comparable.
+\begin{enumerate}
+  \item Rows and columns are separated by the same \emph{absolute} gap in inches
+        (\code{gap\_in}, default 0.048\,in); relative spacing such as
+        \code{wspace}/\code{hspace} is not used.
+  \item Every panel is sized from the data aspect,
+        $\text{panel width} = \text{aspect}\times\text{panel height}$ with
+        $\text{aspect} = (x_1-x_0)/(y_1-y_0)$, so \code{set\_aspect('equal')}
+        changes nothing and no extra whitespace appears between columns.
+  \item Frames are thick (3.2\,pt); the panel letter \code{(a)}, \code{(b)}, \dots
+        sits in the upper-left corner and the component name in the upper-right.
+  \item One horizontal colour bar per column, placed above the first row, with
+        its title and tick labels above the bar.
+  \item Axis titles are set on the bottom row and on the first column; tick
+        \emph{labels} appear only on the first column, while tick marks stay on
+        every bottom/left panel, so large fonts never collide across columns.
+  \item The observing time is written in the lower-right corner of the first
+        panel of each row, and the median $V_{\rm offset}$ is annotated in the
+        third column.
+  \item The view limits are derived from \code{R\_SUN} and \code{CDELT1} rather
+        than hard-coded: the half width is $1.155\,\Rsun$ and the top of the
+        frame is $(1+0.495)\,\Rsun$, which at $\Rsun = 970$\,arcsec gives
+        $x=\pm1120$ and $y=(-1120,\,1450)$\,arcsec.  The extra room at the top
+        keeps the component name off the disk.
+  \item The canvas is sized from the font scale, the panel height and the
+        margins, so text is never clipped; at \code{font\_scale}$\,=2.5$,
+        \code{panel\_height\_in}$\,=4.75$ the figure is
+        $18.4\times13.0$\,in.
+\end{enumerate}
+
+\paragraph{Pairing and invocation.}  A product is named
+\code{<stamp>\_<LINE>\_scv.fits}, so the observation stamp is the pairing key.
+Only stamps that carry \emph{both} lines receive a figure, and one figure is
+written for every such time step.  Three entry points are available:
+\code{scv --joint-grid} during a directory run, the stand-alone script
+\code{scripts/plot\_joint\_ha\_fe.py} over an existing output tree, and the
+Python functions \code{plot\_joint\_grid}, \code{find\_joint\_pairs} and
+\code{make\_joint\_series}.
+
+
 \appendix
 \section{Symbols}
 % ===========================================================================

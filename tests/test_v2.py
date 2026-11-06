@@ -712,3 +712,94 @@ def test_write_component_figures_accepts_a_header(tmp_path):
     assert set(figs) == set(COMPONENT_PANELS), sorted(figs)
     for path in figs.values():
         assert os.path.exists(path) and os.path.getsize(path) > 3000
+
+
+# ------------------------------------- joint H-alpha + Fe I component grid
+def _write_joint_pair(tmp_path, stamp="20251111T095427"):
+    """Two tiny v2 products (H-alpha and Fe I) at the same observation time."""
+    from astropy.io import fits
+    from solar_chromosphere_velocity.output import write_multihdu
+
+    cards = {"CDELT1": 1.04, "CDELT2": 1.04, "CX": 32.0, "CY": 24.0,
+             "R_SUN": 28.0}
+    paths = {}
+    for line in ("HA", "FEI"):
+        hdr = fits.Header()
+        hdr["OBSTIME"] = stamp
+        hdr["SRCFILE"] = "fake_%s.fits" % line
+        path = str(tmp_path / ("%s_%s_scv.fits" % (stamp, line)))
+        write_multihdu(path, _fake_layers(), hdr, None, cards)
+        paths[line] = path
+    return paths["HA"], paths["FEI"]
+
+
+def test_read_product_can_restrict_layers(tmp_path):
+    from solar_chromosphere_velocity.plotting_grid import (JOINT_LAYERS,
+                                                           read_product)
+    ha, _ = _write_joint_pair(tmp_path)
+    _, layers = read_product(ha, names=JOINT_LAYERS)
+    assert set(layers) == set(JOINT_LAYERS)
+    _, everything = read_product(ha)
+    assert "MASK_ACTIVE" in everything and len(everything) > len(layers)
+
+
+def test_product_geometry_uses_the_solar_radius():
+    from astropy.io import fits
+    from solar_chromosphere_velocity.plotting_grid import product_geometry
+    hdr = fits.Header()
+    hdr["R_SUN"] = 100.0
+    hdr["CDELT1"] = 1.0
+    hdr["CDELT2"] = 1.0
+    hdr["CRPIX1"] = 128.0
+    hdr["CRPIX2"] = 128.0
+    _, xlim, ylim = product_geometry(hdr, (256, 256))
+    # half width 1.155 R_sun, top (1 + 0.495) R_sun
+    assert xlim == pytest.approx((-115.5, 115.5))
+    assert ylim == pytest.approx((-115.5, 149.5))
+
+
+def test_find_joint_pairs_requires_both_lines(tmp_path):
+    from solar_chromosphere_velocity.plotting_grid import find_joint_pairs
+    _write_joint_pair(tmp_path, stamp="20251111T095427")
+    ha, _ = _write_joint_pair(tmp_path, stamp="20261030T145700")
+    os.rename(ha, ha.replace("_HA_", "_RESID_"))     # only one line left
+    pairs = find_joint_pairs(str(tmp_path))
+    assert [p[0] for p in pairs] == ["20251111T095427"]
+    assert len(pairs[0]) == 3
+
+
+def test_joint_grid_rows_and_figure(tmp_path):
+    pytest.importorskip("matplotlib")
+    from solar_chromosphere_velocity.plotting_grid import (
+        joint_grid_rows, plot_joint_grid)
+    ha, fe = _write_joint_pair(tmp_path)
+
+    rows = joint_grid_rows(ha, fe)
+    assert len(rows) == 2                     # one row per line
+    assert all(len(r.panels) == 4 for r in rows)
+    assert "H" in rows[0].time and "Fe" in rows[1].time
+
+    # the third column is the algebraic sum of the three small terms
+    from solar_chromosphere_velocity.plotting_grid import read_product
+    _, layers = read_product(ha)
+    expected = layers["V_LIMB"] + layers["V_MERID"] + layers["V_OFFSET"]
+    assert np.allclose(rows[0].panels[2].data, expected)
+
+    out = plot_joint_grid(ha, fe, str(tmp_path / "grid.png"), dpi=60)
+    assert os.path.exists(out) and os.path.getsize(out) > 5000
+
+
+def test_make_joint_series_writes_one_figure_per_time(tmp_path):
+    pytest.importorskip("matplotlib")
+    from solar_chromosphere_velocity.plotting_grid import make_joint_series
+    out_root = tmp_path / "out"
+    (out_root / "20251111").mkdir(parents=True)
+    _write_joint_pair(out_root / "20251111", stamp="20251111T095427")
+    _write_joint_pair(out_root / "20261030", stamp="20261030T145700")
+
+    made = make_joint_series(str(out_root), dpi=60)
+    assert sorted(made) == ["20251111T095427", "20261030T145700"]
+    for stamp, path in made.items():
+        assert os.path.exists(path) and os.path.basename(path) == (
+            "%s_HA_FEI_scv_grid.png" % stamp)
+        assert path.startswith(str(out_root / "joint"))

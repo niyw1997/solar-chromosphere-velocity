@@ -35,6 +35,7 @@ parameters.
   - [Velocity model and the physical meaning of each term](#velocity-model-and-the-physical-meaning-of-each-term)
   - [Parameter estimation and uncertainty](#parameter-estimation-and-uncertainty)
 - [Output](#output)
+- [Joint H-alpha + Fe I figure](#joint-h-alpha--fe-i-figure)
 - [Inputs](#inputs)
 - [Tests](#tests)
 - [License](#license)
@@ -399,6 +400,66 @@ binary table. See [`docs/OUTPUT.md`](docs/OUTPUT.md) for the exact card-by-card
 contract.
 
 **Outputs are never written next to the inputs.**
+
+## Joint H-alpha + Fe I figure
+
+When one run processes both spectral lines, the standard product is **one figure
+per observation time**: one row per line, one column per physical component.
+
+![joint H-alpha and Fe I component grid](docs/figs/joint_grid_20251111.png)
+
+Rows are H-alpha and Fe I at the same observing time; columns are
+`VLOS_OBS`, `V_DIFFROT`, `V_LIMB + V_MERID + V_OFFSET` and `V_RESID`, so the four
+panels of a row read directly as the decomposition of the observed velocity
+field. The layout is fixed in `plotting_grid.py` so every figure looks the same:
+
+* rows and columns share the same **absolute** gap in inches, and every panel
+  keeps the data aspect, so no extra whitespace appears between columns;
+* thick frames, panel letters `(a)`–`(h)` upper-left and the component name
+  upper-right;
+* one horizontal colour bar per column, above the first row, with its title and
+  tick labels above the bar;
+* axis titles on the bottom row and the first column, tick labels on the first
+  column only, tick marks on every bottom/left panel, so large fonts never
+  collide across columns;
+* the observing time in the lower-right corner of the first panel of each row,
+  and the median `V_OFFSET` annotated in the third column;
+* the third column is a sum of three small terms and is scaled to the 99.5th
+  percentile of both lines together, while columns 1, 2 and 4 use fixed
+  `±3`, `±2` and `±1.5 km/s`;
+* the view is derived from `R_SUN` and `CDELT1`, so the framing adapts to the
+  instrument instead of being tied to one data set.
+
+Produce it during a run over both lines:
+
+```bash
+scv --input /data/level1 --pattern '*.fits' --output /data/scv --joint-grid
+# -> /data/scv/joint/<YYYYMMDD>T<HHMMSS>_HA_FEI_scv_grid.png, one per time step
+```
+
+or from an existing output tree, without re-processing anything:
+
+```bash
+python scripts/plot_joint_ha_fe.py /data/scv              # one figure per time
+python scripts/plot_joint_ha_fe.py --ha A_HA_scv.fits --fe A_FEI_scv.fits \
+    -o figures/joint.png                                  # a single pair
+python scripts/plot_joint_ha_fe.py /data/scv --font-scale 1.5 --dpi 150
+```
+
+The Python API exposes the same thing:
+
+```python
+from solar_chromosphere_velocity import (
+    find_joint_pairs, make_joint_series, plot_joint_grid)
+
+plot_joint_grid("A_HA_scv.fits", "A_FEI_scv.fits", "joint.png")
+made = make_joint_series("/data/scv")          # {stamp: png}, scans for pairs
+pairs = find_joint_pairs("/data/scv")          # [(stamp, ha, fe), ...]
+```
+
+Pairing is done on the observation stamp in the file name, because a v2 product
+is named `<stamp>_<LINE>_scv.fits`; only stamps that have **both** lines get a
+figure, and one is written for every such time step.
 
 ## Inputs
 

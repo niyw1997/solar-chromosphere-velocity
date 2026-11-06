@@ -85,6 +85,10 @@ class Config:
     plot_per_component: bool = False       # also write one figure per component
     plot_panels: Optional[Tuple[str, ...]] = None   # None -> all present layers
     plot_overlay_mask: bool = False        # contour the active regions
+    # joint H-alpha + Fe I grid, one figure per observation time (the standard
+    # two-line product); see plotting_grid
+    joint_grid: bool = False
+    joint_grid_dir: str = ""               # "" -> <output_dir>/joint
     log_level: str = "INFO"
     log_file: Optional[str] = None
 

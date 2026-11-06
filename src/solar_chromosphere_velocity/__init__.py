@@ -13,7 +13,7 @@ Major changes vs v1.0.1
   circulation) with ``legacy=True`` to reproduce v1 exactly.
 """
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 __author__ = "Solar Physics Team"
 
 from .config import (
@@ -52,6 +52,16 @@ from .masks import (
     create_solar_mask,
     effective_disk_mask,
     effective_radius_px,
+)
+from .plotting_grid import (
+    Panel,
+    Row,
+    find_joint_pairs,
+    joint_grid_rows,
+    make_joint_series,
+    plot_joint_grid,
+    plot_joint_series,
+    plot_map_grid,
 )
 from .plotting import (
     COMPONENT_PANELS,
@@ -118,4 +128,12 @@ __all__ = [
     "plot_components",
     "plot_summary",
     "write_component_figures",
+    "Panel",
+    "Row",
+    "plot_map_grid",
+    "plot_joint_grid",
+    "plot_joint_series",
+    "joint_grid_rows",
+    "find_joint_pairs",
+    "make_joint_series",
 ]

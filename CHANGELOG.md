@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.2.0
+
+### Added
+
+- **Joint H-alpha + Fe I component grid** (`plotting_grid.py`): the standard
+  product of a run that processes both spectral lines.  One figure per
+  observation time, one row per line and one column per physical component
+  (`V_LOS`, `V_diffrot`, `V_limb + V_merid + V_offset`, `V_resid`), with a
+  horizontal colour bar per column above the first row, panel letters, the
+  observing time and the median `V_offset` annotated, and a layout fixed in code
+  (equal absolute row/column gaps, panels sized from the data aspect, view
+  limits derived from `R_SUN` and `CDELT1`).
+- `scv --joint-grid` (with `--joint-grid-dir`) writes one grid per observation
+  time at the end of a directory run; `scripts/plot_joint_ha_fe.py` does the
+  same over an existing output tree; `plot_joint_grid`, `find_joint_pairs` and
+  `make_joint_series` expose it in Python.  Pairing uses the observation stamp,
+  so only times that carry both lines get a figure.
+- Manual section "The joint H-alpha + Fe I product" (English and Chinese
+  editions) and a README section listing the layout rules.
+
 ## 2.0.0
 
 Complete rewrite of the processing core.  `--legacy` reproduces v1.0.1 results.

@@ -107,6 +107,13 @@ def build_parser(prog: str = "scv", legacy_default: bool = False):
                      help="additionally write one figure per component")
     out.add_argument("--plot-overlay-mask", action="store_true",
                      help="contour the active regions onto the velocity panels")
+    out.add_argument("--joint-grid", action="store_true",
+                     help="also write the joint H-alpha + Fe I component grid, "
+                          "one figure per observation time (the standard "
+                          "two-line product)")
+    out.add_argument("--joint-grid-dir", default="",
+                     help="where to put the joint grids (default: "
+                          "<output>/joint)")
     out.add_argument("--log-level", default="INFO",
                      choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
     out.add_argument("--log-file")
@@ -185,6 +192,8 @@ def config_from_args(args) -> Config:
         plot_panels=tuple(args.plot_panels) if args.plot_panels else None,
         plot_per_component=args.plot_per_component,
         plot_overlay_mask=args.plot_overlay_mask,
+        joint_grid=args.joint_grid,
+        joint_grid_dir=args.joint_grid_dir,
         rice_compression=args.compress,
         no_day_subdirectory=args.flat,
         overwrite=args.overwrite,
@@ -233,6 +242,30 @@ def main(argv=None):
                 print("%-44s -> %s (%s: %s)"
                       % (r.srcfile, r.outfile or "-", r.status, r.message))
         print("summary: %d ok, %d failed" % (len(ok), len(bad)))
+
+    # joint H-alpha + Fe I grid: the standard product of a two-line run
+    if not args.file:
+        from .plotting_grid import find_joint_pairs, make_joint_series
+        try:
+            pairs = find_joint_pairs(cfg.output_dir)
+        except Exception:
+            pairs = []
+        if pairs:
+            if cfg.joint_grid:
+                try:
+                    made = make_joint_series(
+                        cfg.output_dir, cfg.joint_grid_dir or None,
+                        dpi=cfg.plot_dpi)
+                    for stamp in sorted(made):
+                        print("joint grid: %s -> %s" % (stamp, made[stamp]))
+                except Exception as exc:
+                    logging.getLogger("scv").warning(
+                        "joint grid failed: %s: %s", type(exc).__name__, exc)
+            else:
+                logging.getLogger("scv").info(
+                    "%d observation time(s) have both H-alpha and Fe I; "
+                    "add --joint-grid to write the two-line component grid",
+                    len(pairs))
     return 1 if bad else 0
 
 
