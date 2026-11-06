@@ -24,7 +24,7 @@ itself is described below and derived in full in the manual.
 - [Install](#install)
 - [Quick start — single machine](#quick-start--single-machine)
   ([one-page version](docs/QUICKSTART.md))
-- [Running on a cluster (BlueWhale / LSF)](#running-on-a-cluster-bluewhale--lsf)
+- [Running on a computing cluster](#running-on-a-computing-cluster)
 - [Python API](#python-api)
 - [Method](#method)
   - [Program flow](#program-flow)
@@ -112,7 +112,7 @@ the peak to about 1.5 GB (3 figures) or 3.0 GB (9 figures).  The FITS product is
 written before the figures, so a plotting failure does not cost the product.
 
 For reference, the v1 implementation needed 169 s and 4.27 GB on a comparable
-cube (BlueWhale, 64-core `mpi` queue).  The two agree numerically: `VLOS_OBS`
+cube on a computing cluster.  The two agree numerically: `VLOS_OBS`
 differs by `max|Δ| = 9.5e-7 km/s` (rms `7.5e-8`) and the identifiable parameters
 by `max|Δ| = 4.4e-7`; `--legacy` reproduces the v1 numbers.
 
@@ -165,39 +165,37 @@ A ready-to-edit wrapper is provided:
 bash examples/run_local.sh /data/level1 /data/scv '*_HA.fits'
 ```
 
-## Running on a cluster (BlueWhale / LSF)
+## Running on a computing cluster
 
-Two example scripts are provided: `examples/run_bluewhale.sh` is the job body
-(runs on the compute node) and `examples/submit_bluewhale.sh` submits it to the
-`mpi` queue with the cluster conventions — `-n` a multiple of 64 and
-`-R 'span[hosts=1]'` so the job stays on one host.
+A cube is processed independently of every other cube, and one process holds
+about 1.5 GB.  A cluster is therefore used by running one process per cube rather
+than by spreading one cube over many cores.
+
+`examples/run_cluster.sh` is a job body that does exactly that: it takes the data
+directory, the output directory, a file pattern and a process count, and keeps
+that many cubes in flight.
 
 ```bash
-# review the exact bsub line, then answer y
-bash examples/submit_bluewhale.sh scv-run 01:00
+bash examples/run_cluster.sh data work '*_HA.fits' 8
 ```
+
+Submit that file with whatever scheduler the cluster provides; it carries no
+dependency on one.  Size the process count from the memory of the node, not from
+its core count, and note that the observation index is left to a serial run,
+since concurrent writers would interleave a single file.
 
 Without the CLI, from the directory that holds `src/` and `data/`:
 
 ```bash
 export PYTHONPATH="$PWD/src:$PYTHONPATH"
-mkdir -p work logs
-
-bsub -q mpi -n 64 -W 01:00 -R 'span[hosts=1]' \
-     -J scv-run \
-     -o logs/scv-run-%J.out -e logs/scv-run-%J.err \
-     bash -lc 'cd '"$PWD"' && python -m solar_chromosphere_velocity.cli \
-               --input data --pattern "*_HA.fits" --output work \
-               --spatial-strip-rows 32 --visualize --log-level INFO'
-
-bjobs                 # watch it
-tail -f work/run.log  # the job's own log
+python -m solar_chromosphere_velocity.cli \
+    --input data --pattern '*_HA.fits' --output work --log-level INFO
 ```
 
-The analysis is single-threaded by design (see
-[Streaming and parallel framework](#streaming-and-parallel-framework)), so use
-the cores for **parallel files** rather than inside one file: submit several
-jobs, or have the job body loop over disjoint file lists.
+The analysis of one cube is single-threaded by design, for the reason given in
+[Streaming and parallel framework](#streaming-and-parallel-framework): the gains
+come from vectorising over the image and streaming the spectral axis, not from
+threads.
 
 ## Python API
 

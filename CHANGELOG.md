@@ -184,7 +184,7 @@ Complete rewrite of the processing core.  `--legacy` reproduces v1.0.1 results.
   locally), and v1 calls it from `ChromosphereProcessor.__init__`, so v1
   cannot even be *instantiated* under matplotlib 3.11 regardless of
   whether plotting is enabled - which is what stopped the v1 baseline on
-  BlueWhale (matplotlib 3.11.2).  v2 uses the `matplotlib.colormaps`
+  the cluster job (matplotlib 3.11.2).  v2 uses the `matplotlib.colormaps`
   registry with a fallback.
 
 ### Renamed (2.1)
