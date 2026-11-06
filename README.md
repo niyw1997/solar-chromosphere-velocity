@@ -52,7 +52,7 @@ full-image-scale, parallel and spatially low-frequency, so the wavelength window
 now runs 30-1500 px instead of 25-150 px, only peaks sharing the orientation of
 the strongest one are kept, and the notch is narrow (0.20 k0) instead of wide.
 On 2025-11-11 that finds 326 px at -45 degrees for H-alpha and 544 px for Fe I,
-the same fringes the reference session tuned by hand, where the old window was
+the same fringes that per-event tuning had identified, where the old window was
 locking onto genuine mid-stream structure.  A second pass is now opt-in.
 
 `V_SS` gained a column in the joint grid, and `V_LOCAL` uses one fixed colour
@@ -220,7 +220,7 @@ Two example scripts are provided: `examples/run_bluewhale.sh` is the job body
 bash examples/submit_bluewhale.sh scv-run 01:00
 ```
 
-The equivalent by hand, from the directory that holds `src/` and `data/`:
+Without the CLI, from the directory that holds `src/` and `data/`:
 
 ```bash
 export PYTHONPATH="$PWD/src:$PYTHONPATH"

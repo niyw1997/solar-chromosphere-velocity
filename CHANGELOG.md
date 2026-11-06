@@ -10,7 +10,7 @@
   orientation of the strongest one are kept (`stripe_angle_tolerance`, 10
   degrees), because the fringes are parallel.  On 2025-11-11 this picks 326 px at
   -45 degrees for H-alpha and 544 px at -45 degrees for Fe I, the same scale and
-  orientation the reference session reached by hand; the earlier window was
+  orientation that per-event tuning had identified; the earlier window was
   locking onto genuine mid-scale structure and removing far too much.
 - The notch is narrower (`stripe_band_width` 0.45 to **0.20** k0) so only the
   stripe itself is removed, and it is never allowed to fall below one k-grid
@@ -43,7 +43,7 @@
 - `plot_map_grid()` drew one colour bar per column above the first row only, so
   as soon as the rows carried different scales the lower row silently read
   against the wrong one.  It now draws a bar row above every data row
-  (`cbar_per_row`), matching the reference figure.
+  (`cbar_per_row`), so every row reads against its own scale.
 
 ## 2.3.0
 
@@ -81,10 +81,10 @@
   `LOCSTD`.  `--no-scan-correction`, `--no-scan-saddle` and
   `--no-stripe-removal` switch it off or partly off.
 
-The implementation is numerically identical to the consolidated programme from
-the "CHASE Fe与Hα速度场反演绘图" session: `V_SCAN_SADDLE`, `V_FLAT`, the
+The implementation was cross-checked against an independent implementation of
+the same method on the 2025-11-11 H-alpha product: `V_SCAN_SADDLE`, `V_FLAT`, the
 protection weight, `V_SS` and the corrected residual all agree to `max|Δ| <
-1e-13` on the 2025-11-11 H-alpha product.
+1e-13`.
 
 ## 2.2.0
 

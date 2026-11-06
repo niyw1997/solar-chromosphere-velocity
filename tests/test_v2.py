@@ -472,7 +472,7 @@ def test_pipeline_writes_figures(tmp_path):
 
 # ------------------------------------------- regressions from the v2 review
 def test_primary_header_has_no_duplicate_keywords(tmp_path):
-    """The input header and our cards overlap; PRIMARY must be unambiguous."""
+    """The input header and the generated cards overlap; PRIMARY must be clear."""
     from astropy.io import fits
     from solar_chromosphere_velocity.output import write_multihdu
     layers = _fake_layers()

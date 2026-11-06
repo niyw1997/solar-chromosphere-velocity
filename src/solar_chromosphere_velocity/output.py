@@ -302,10 +302,10 @@ _REPEATABLE = {"COMMENT", "HISTORY", "", "END"}
 def _dedupe(header: fits.Header):
     """Keep only the LAST card for each keyword.
 
-    The input header and our own cards overlap (B0, INST_ROT, CDELT*, CRPIX*,
-    RSUN_OBS, ...); appending both left 38 duplicated keywords, one of them
-    conflicting (INST_ROT = 0 vs 0.0).  Our value is written last, so keeping
-    the last occurrence makes the file unambiguous.
+    The input header and the generated cards overlap (B0, INST_ROT, CDELT*,
+    CRPIX*, RSUN_OBS, ...); appending both left 38 duplicated keywords, one of
+    them conflicting (INST_ROT = 0 vs 0.0).  The generated value is written
+    last, so keeping the last occurrence makes the file unambiguous.
     """
     seen = {}
     for i, card in enumerate(header.cards):

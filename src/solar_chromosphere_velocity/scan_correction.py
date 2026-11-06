@@ -30,9 +30,9 @@ All the routines operate on a 2-D velocity map plus its header and return arrays
 of the same shape.  Nothing here changes the spectral inversion; the correction
 is applied to the residual only.
 
-Reference implementation: the consolidated scan-correction programme from the
-"CHASE Fe与Hα速度场反演绘图" session, with the same equations, taper, band-stop
-kernel, envelope demodulation and protection weight.
+The equations, the taper, the band-stop kernel, the envelope demodulation and
+the protection weight follow the method described in the manual, section
+"Scan-saddle and flat-field removal".
 """
 
 from __future__ import annotations
@@ -423,7 +423,7 @@ def scan_correction(velocity, header, *, enabled: bool = True,
             after = residual - flat_raw
             prepared_after = _prepared(after)
 
-            # explicit peaks: per-vector ratio test, as in the reference code
+            # explicit peaks: per-vector ratio test
             if second_peaks:
                 extra, ratios = second_pass(
                     residual, after,
