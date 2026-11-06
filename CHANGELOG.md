@@ -1,5 +1,50 @@
 # Changelog
 
+## 2.4.0
+
+### Changed
+
+- **The stripe search now runs over the right scales.**  The fringes that matter
+  are full-image-scale, parallel and spatially low-frequency, so the wavelength
+  window moved from 25-150 px to **30-1500 px**, and only peaks that share the
+  orientation of the strongest one are kept (`stripe_angle_tolerance`, 10
+  degrees), because the fringes are parallel.  On 2025-11-11 this picks 326 px at
+  -45 degrees for H-alpha and 544 px at -45 degrees for Fe I, the same scale and
+  orientation the reference session reached by hand; the earlier window was
+  locking onto genuine mid-scale structure and removing far too much.
+- The notch is narrower (`stripe_band_width` 0.45 to **0.20** k0) so only the
+  stripe itself is removed, and it is never allowed to fall below one k-grid
+  step, which otherwise made a long-wavelength fringe impossible to notch at all.
+- A second pass is now **opt-in** (`--stripe-second-pass`) instead of on, because
+  it over-subtracts.
+- `V_SS` gained a column in the joint grid, between `V_OTHER` and `V_LOCAL`, so a
+  row reads `V_LOS`, `V_diffrot`, `V_limb+V_merid+V_offset`, `V_SS`, `V_local`.
+  Products carry the scan terms whenever `--joint-grid` is on, so the column is
+  always available, and older products without `V_SS` fall back to four columns.
+- **The `V_LOCAL` colour scale is fixed per spectral line**, `+/-0.5 km/s` for
+  Fe I and `+/-1.5` for H-alpha, instead of a percentile.  The Fe I residual is
+  about a third of the H-alpha one, and an automatic limit made the same quantity
+  look unrelated from one figure to the next.  The rule lives in
+  `constants.LOCAL_VELOCITY_LIMIT_KM_S` and is honoured by the per-file component
+  plots, the joint grid and the overlays alike.
+
+### Added
+
+- `blend_stripe_fields()` and `scan_correction_two_arm()`: run the removal twice,
+  once hard and once soft, then blend the two flat-field estimates with a
+  smoothed weight.  The hard arm removes about twice as much as the soft one but
+  costs 5 % (H-alpha) to 11 % (Fe I) of the 20-50 px power; an equal-weight blend
+  recovers most of that while still removing 1.4 to 2.1 times more than the soft
+  arm.  The `agreement` weighting turned out to collapse back onto the soft arm,
+  so the mean weighting is the useful one.  Not wired into the default pipeline.
+
+### Fixed
+
+- `plot_map_grid()` drew one colour bar per column above the first row only, so
+  as soon as the rows carried different scales the lower row silently read
+  against the wrong one.  It now draws a bar row above every data row
+  (`cbar_per_row`), matching the reference figure.
+
 ## 2.3.0
 
 ### Added

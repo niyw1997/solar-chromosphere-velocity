@@ -45,6 +45,22 @@ parameters.
 
 ## What is new
 
+### 2.4 — the right scales, and one colour scale per line
+
+The stripe search was looking in the wrong place.  The fringes are
+full-image-scale, parallel and spatially low-frequency, so the wavelength window
+now runs 30-1500 px instead of 25-150 px, only peaks sharing the orientation of
+the strongest one are kept, and the notch is narrow (0.20 k0) instead of wide.
+On 2025-11-11 that finds 326 px at -45 degrees for H-alpha and 544 px for Fe I,
+the same fringes the reference session tuned by hand, where the old window was
+locking onto genuine mid-stream structure.  A second pass is now opt-in.
+
+`V_SS` gained a column in the joint grid, and `V_LOCAL` uses one fixed colour
+scale per line, `+/-0.5 km/s` for Fe I and `+/-1.5` for H-alpha, so the same
+quantity no longer changes scale between figures.  `blend_stripe_fields()` and
+`scan_correction_two_arm()` add a hard/soft two-arm blend, not yet wired into the
+default pipeline.
+
 ### 2.3 — scan-saddle and flat-field removal
 
 The level-1 residual still carries two detector-scale systematics.  Both are now
@@ -468,6 +484,19 @@ Everything is recorded in `PRIMARY` (`SCANCORR`, `SCSTRIPE`, `SCQUADF`,
 `RESSTD`, `SCSTD`, `LOCSTD`, ...), so a product can be audited after the fact.
 `--no-scan-correction`, `--no-scan-saddle` and `--no-stripe-removal` switch it
 off or partly off.
+
+![Scan removal, 2025-11-11](docs/figs/scan_correction_20251111.png)
+
+*The step by step, H-alpha on top and Fe I below: the level-1 residual, the
+quadratic, the flat-field stripes, their sum `V_SS`, and the local velocity that
+remains.  Each column carries its own colour bar, which is what makes the terms
+visible against a residual ten times larger.  The fringes are parallel and run at
+-45 degrees.*
+
+![Two-arm blend, 2025-11-11](docs/figs/two_arm_blend_20251111.png)
+
+*A hard and a soft arm and the equal-weight blend between them, with the three
+flat-field columns on a common scale so the strength difference is readable.*
 
 ## Joint H-alpha + Fe I figure
 
