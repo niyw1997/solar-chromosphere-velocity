@@ -595,10 +595,9 @@ disk while keeping its wavelength fixed.
 detected from the map: the 2-D power spectrum is computed on a tapered image,
 local maxima are collected, and only peaks with
 $30\,\mathrm{px} \le \lambda \le 1500\,\mathrm{px}$ and a power above eight times
-the median of that annulus are kept.  The 30--1500\,px interval is where the fringes of this instrument
-  live: they are periodic, spatially low-frequency and run to the scale of
-  the whole image, so a search restricted to short wavelengths would lock
-  onto genuine mid-scale structure.  Only peaks sharing the orientation of
+the median of that annulus are kept.  The 30--1500\,px interval is where the
+fringes of this instrument live: they are periodic, spatially low-frequency, and
+they run to the scale of the whole image.  Only peaks sharing the orientation of
   the strongest one (within \code{stripe\_angle\_tolerance}, default
   $10^\circ$) are kept, because the fringes are parallel.  The number of vectors is set by
 \code{stripe\_topn} (default 2) and can be pinned explicitly with

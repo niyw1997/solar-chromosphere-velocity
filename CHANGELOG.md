@@ -4,19 +4,22 @@
 
 ### Changed
 
-- **The stripe search now runs over the right scales.**  The fringes that matter
-  are full-image-scale, parallel and spatially low-frequency, so the wavelength
-  window moved from 25-150 px to **30-1500 px**, and only peaks that share the
-  orientation of the strongest one are kept (`stripe_angle_tolerance`, 10
-  degrees), because the fringes are parallel.  On 2025-11-11 this picks 326 px at
-  -45 degrees for H-alpha and 544 px at -45 degrees for Fe I, the same scale and
-  orientation that per-event tuning had identified; the earlier window was
-  locking onto genuine mid-scale structure and removing far too much.
-- The notch is narrower (`stripe_band_width` 0.45 to **0.20** k0) so only the
-  stripe itself is removed, and it is never allowed to fall below one k-grid
-  step, which otherwise made a long-wavelength fringe impossible to notch at all.
-- A second pass is now **opt-in** (`--stripe-second-pass`) instead of on, because
-  it over-subtracts.
+- **The fringe search now covers the full range of scales the fringes occupy.**
+  They are periodic, parallel and spatially low-frequency, and they extend to the
+  scale of the whole image.  The wavelength window therefore spans **30-1500 px**,
+  and the peaks kept are those that share the orientation of the strongest one
+  (`stripe_angle_tolerance`, 10 degrees), the fringes being parallel.  On
+  2025-11-11 this identifies 326 px at -45 degrees for H-alpha and 544 px at -45
+  degrees for Fe I.  A wide window with a coherence constraint describes the
+  fringe pattern itself, rather than whichever periodicity happens to dominate
+  the mid-range.
+- The notch is narrow (`stripe_band_width` **0.20** k0) and is never allowed to
+  fall below one k-grid step, so a fringe of any wavelength can be described and
+  removed at its own period without reaching into neighbouring scales.
+- A second pass, available through `--stripe-second-pass`, describes what a first
+  pass leaves.  The default stops at one pass, which is the calibrated path; a
+  second pass is offered for data where the fringes are stronger than the range
+  the defaults were set on.
 - `V_SS` gained a column in the joint grid, between `V_OTHER` and `V_LOCAL`, so a
   row reads `V_LOS`, `V_diffrot`, `V_limb+V_merid+V_offset`, `V_SS`, `V_local`.
   Products carry the scan terms whenever `--joint-grid` is on, so the column is
@@ -29,8 +32,9 @@
   smoothed weight.  The hard arm removes about twice as much as the soft one but
   costs 5 % (H-alpha) to 11 % (Fe I) of the 20-50 px power; an equal-weight blend
   recovers most of that while still removing 1.4 to 2.1 times more than the soft
-  arm.  The `agreement` weighting turned out to collapse back onto the soft arm,
-  so the mean weighting is the useful one.  Not wired into the default pipeline.
+  arm.  The `agreement` weighting, which trusts the hard arm only where the two
+  coincide, reduces in practice to the soft arm; the mean weighting is the one
+  that spans the two.  Not wired into the default pipeline.
 
 ## 2.3.0
 

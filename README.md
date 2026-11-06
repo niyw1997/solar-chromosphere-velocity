@@ -4,10 +4,8 @@ Processing of CHASE/HIS chromospheric spectra into line-of-sight (LOS) velocity
 maps, with the large-scale flow modelled, decomposed into its physical
 components, and removed.
 
-**Version 2.1** — one multi-extension FITS per observation time, streaming reads,
-vectorised geometry, batched-FFT Doppler inversion and a streaming linear
-least-squares velocity model. `--legacy` reproduces v1.0.1 on the identifiable
-parameters.
+Version 2.4.0.  The change history is in [`CHANGELOG.md`](CHANGELOG.md); the method
+itself is described below and derived in full in the manual.
 
 * Full method write-up (program flow, parallel framework, spectral fitting,
   velocity model, physical meaning and expression of every term):
@@ -21,7 +19,7 @@ parameters.
 
 ## Contents
 
-- [What is new](#what-is-new)
+- [Overview](#overview)
 - [Performance](#performance)
 - [Install](#install)
 - [Quick start — single machine](#quick-start--single-machine)
@@ -44,122 +42,79 @@ parameters.
 
 ---
 
-## What is new
+## Overview
 
-### 2.4 — the right fringe scales
+A CHASE/HIS observation is a spectral cube: one spectrum for every position on the
+solar disk.  A spectral line forms over a range of heights in the solar atmosphere,
+and its displacement from the laboratory wavelength records the line-of-sight
+velocity of the plasma at that height, at the moment of observation.  This code
+turns such a cube into a velocity map, and separates that map into the
+contributions whose origin is known, so that what remains can be attributed to the
+solar atmosphere rather than to the geometry of the observation or to the
+instrument.
 
-The stripe search was looking in the wrong place.  The fringes are
-full-image-scale, parallel and spatially low-frequency, so the wavelength window
-now runs 30-1500 px instead of 25-150 px, only peaks sharing the orientation of
-the strongest one are kept, and the notch is narrow (0.20 k0) instead of wide.
-On 2025-11-11 that finds 326 px at -45 degrees for H-alpha and 544 px for Fe I,
-the same fringes that per-event tuning had identified, where the old window was
-locking onto genuine mid-stream structure.  A second pass is now opt-in.
+The measurement rests on four steps.
 
-`V_SS` gained a column in the joint grid.  `blend_stripe_fields()` and
-`scan_correction_two_arm()` add a hard/soft two-arm blend, not yet wired into the
-default pipeline.
+**The line centre is taken from the data.**  A template is built from the average
+spectrum near disk centre, every spectrum is cross-correlated with it, and the
+displacement of the correlation peak is converted to velocity through the
+wavelength scale of the cube.  The result does not depend on the line sitting at
+the nominal wavelength of the file.
 
-### 2.3 — scan-saddle and flat-field removal
+**The large-scale flow is modelled as a whole rather than subtracted piecewise.**
+The observed velocity is described as the sum of the differential rotation, a
+centre-to-limb term, the meridional circulation projected along the line of sight
+and a global zero point, fitted together over the whole disk.  Each term carries a
+physical expression, given in the Method section, and the fit reports which of its
+parameters the data can actually constrain.
 
-The level-1 residual still carries two detector-scale systematics.  Both are now
-removed by default, and the result is the layer you should use:
+**What the model leaves is characterised at the scales of the instrument.**  The
+fringes and the raster scan-saddle are periodic, parallel, and run to the scale of
+the whole image.  They are described by a quadratic surface and by a set of
+parallel templates at the wave vectors detected from the map, and those
+descriptions are removed.  Active regions are held out of that removal, so the
+structure they carry survives it.
 
-```
-V_SS    = V_SCAN_SADDLE + V_FLAT
-V_LOCAL = V_RESID - V_SS
-```
+**What cannot be measured is reported as such.**  A parameter the model cannot
+constrain is flagged and returned with an undefined uncertainty rather than as a
+number.
 
-`V_SCAN_SADDLE` is a full-disk quadratic in the normalised disk coordinates
-(`c0 + c1 Y + c2 Y^2 + c3 X + c4 XY + c5 X^2`).  `V_FLAT` is a parallel-stripe
-template, either a Fourier band-stop or an envelope template, at wave vectors
-detected from the map itself (30-1500 px, parallel peaks only) or given with
-`--stripe-peaks LAM:ANG`.
-The flat-field term is damped by a smooth active-region weight, so real blobs
-survive.  `V_LOCAL` replaces `V_RESID` in the product; `V_RESID` becomes a
-level-0.5 intermediate that is written only with `--write-vresid`, and
-`--write-scan-terms` adds `V_SCAN_SADDLE`, `V_FLAT` and `V_SS`.
-`--no-scan-correction` switches the whole step off.  See
-[Scan-saddle and flat-field removal](#scan-saddle-and-flat-field-removal).
-
-### 2.1 — solar-physics naming
-
-The configuration and CLI now name physical quantities in the terms a solar
-physicist expects, instead of generic computing terms. The generic I/O names
-(`input_dir`, `output_dir`, `pattern`, `overwrite`) are unchanged.
-
-| 2.0 | 2.1 |
-|---|---|
-| `n_limb` | `limb_exponent` |
-| `n_limb_scan` | `limb_exponent_scan` |
-| `limb_nonneg` | `limb_amplitude_positive` |
-| `window_half` | `correlation_half_width` |
-| `profile_mask_radius` | `reference_profile_radius` |
-| `demean_window` | `continuum_subtraction` |
-| `clip_subpixel` | `limit_subpixel_shift` |
-| `line_center_min_len` | `min_spectral_samples` |
-| `activity_threshold_sigma` | `active_region_sigma_threshold` |
-| `use_mad` | `active_region_robust_sigma` |
-| `min_activity_area` | `min_active_region_area` |
-| `dilation_iterations` | `active_region_grow_steps` |
-| `erosion_iterations` | `active_region_shrink_steps` |
-| `disk_exclusion_radius` | `disk_mask_radius` |
-| `row_block` | `spatial_strip_rows` |
-| `n_workers` | `parallel_processes` |
-| `use_multiprocessing` | `parallel_processing` |
-| `flat_output` | `no_day_subdirectory` |
-| `write_index` | `write_observation_log` |
-| `compress_output` | `rice_compression` |
-| `exclude_globs` | `exclude_patterns` |
-
-CLI flags follow the same names (`--n-limb` → `--limb-exponent`,
-`--row-block` → `--spatial-strip-rows`, …). Old **v1** configuration keys are
-still accepted through `config_from_v1` / the `process-chase` entry point.
-
-### 2.0 — the rewrite
-
-* **Complete physics.** The rotation term carries the `cos B0` factor, the
-  meridional circulation is projected onto the LOS, and the velocity scale is
-  taken from the header (`CDELT3`, `WAVE_LEN`) instead of a hard-coded constant.
-* **Streaming I/O.** Compressed cubes are read window-by-window with
-  `hdu.section`; the whole cube is never decompressed.
-* **Speed.** Vectorised geometry, batched-FFT cross-correlation, streaming
-  normal equations (see below).
-* **A real output contract.** One multi-extension FITS per observation time,
-  keyed on the header observation time, plus `index.csv`. Outputs are **never**
-  written next to the inputs.
-* **Honest uncertainties.** Parameters that are not identifiable (`e` pinned to
-  its `>= 0` bound, and `N`, which the model cannot see once `e = 0`) are flagged
-  and given `NaN` errors instead of `±0`, which would read as a perfect
-  measurement.
+The result is one multi-extension FITS per observation time, one extension per
+physical quantity, with figures on request.  The manual derives every step and
+lists every keyword written to the header.
 
 ## Performance
 
-Measured on BlueWhale (64-core `mpi` queue, Python 3.11 / astropy 8.0.1 /
-numpy 2.4.6) on a 2026-04-24 Hα level-1 cube, `2313 x 2304 x 118`, one process:
+One full-disk Hα cube, `2313 x 2304 x 118`, one process:
 
-| implementation | wall time | peak memory |
+| path | wall time | peak memory |
 |---|---|---|
-| v1.0.1 | 169.2 s | 4.266 GB |
-| v2 `--legacy` | **8.9 s** | 0.575 GB |
-| v2 complete physics | **9.6 s** | 0.583 GB |
+| fringe and scan-saddle removal off (`--no-scan-correction`) | **8.9 s** | 0.79 GB |
+| default | **11.4 s** | 1.45 GB |
 
-**Speed-up 17.6×** (complete physics) / **19.0×** (`--legacy`);
-**7.3×** less memory. The two versions agree numerically: `VLOS_OBS` differs by
-`max|Δ| = 9.5e-7 km/s` (rms `7.5e-8`) and the identifiable parameters by
-`max|Δ| = 4.4e-7`.
+The removal accounts for 2.5 s and 0.66 GB of that, and is the part of the cost
+that buys the fringe characterisation.  The Fe I cube, whose spectra carry 46
+planes instead of 118, needs 11.0 s and 1.32 GB.
 
-Where the time went:
+Where the time goes on the default path:
 
-| stage | v1.0.1 | v2 |
-|---|---|---|
-| vectorised solar geometry | ~33 s | ~0.6 s |
-| Doppler inversion | 5.5–7.5 min | ~6 s |
-| model fit (2.4e6 points) | ~120 s | ~1.3 s |
+| stage | cost |
+|---|---|
+| reading and solar geometry | ~0.6 s |
+| Doppler inversion, line centre and cross-correlation | ~6 s |
+| active-region mask | ~0.4 s |
+| nine-parameter flow fit over 2.4e6 points | ~1.0 s |
+| reconstruction, fringe and scan-saddle removal | ~4.6 s |
+| writing the product | ~0.5 s |
 
-Note that `--visualize` is *not* free: the nine figures roughly double the wall
-time and raise the peak from 0.58 GB to about 1.5 GB (3 figures) or 3.0 GB
-(9 figures). The FITS product is unaffected if plotting fails.
+`--visualize` is not free: the nine figures roughly double the wall time and raise
+the peak to about 1.5 GB (3 figures) or 3.0 GB (9 figures).  The FITS product is
+written before the figures, so a plotting failure does not cost the product.
+
+For reference, the v1 implementation needed 169 s and 4.27 GB on a comparable
+cube (BlueWhale, 64-core `mpi` queue).  The two agree numerically: `VLOS_OBS`
+differs by `max|Δ| = 9.5e-7 km/s` (rms `7.5e-8`) and the identifiable parameters
+by `max|Δ| = 4.4e-7`; `--legacy` reproduces the v1 numbers.
 
 ## Install
 
