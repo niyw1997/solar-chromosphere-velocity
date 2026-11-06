@@ -61,7 +61,7 @@ JOINT_COLUMNS = (
     ("V_DIFFROT", r"$V_{\rm diffrot}$", 2.0, None),
     ("V_OTHER", r"$V_{\rm limb}+V_{\rm meridian}$" + "\n"
      + r"$+\,V_{\rm offset}$", None, 18.5),
-    ("V_RESID", r"$V_{\rm resid}$", 1.5, None),
+    ("V_LOCAL", r"$V_{\rm local}$", 1.5, None),   # V_RESID fallback below
 )
 
 _LINE_LABEL = {"HA": r"H$\alpha$", "FEI": "Fe I"}
@@ -110,7 +110,7 @@ def _require_mpl():
 # ---------------------------------------------------------------------------
 #: layers the joint grid actually needs
 JOINT_LAYERS = ("VLOS_OBS", "V_DIFFROT", "V_LIMB", "V_MERID", "V_OFFSET",
-                "V_RESID")
+                "V_LOCAL", "V_RESID")
 
 
 def read_product(path: str, names: Optional[Sequence[str]] = None
@@ -210,8 +210,11 @@ def joint_grid_rows(ha_path: str, fe_path: str, *, font_scale: float = 2.5,
     loaded = []
     for path, key in ((ha_path, "HA"), (fe_path, "FEI")):
         header, layers = read_product(path, names=JOINT_LAYERS)
-        missing = [name for name, *_ in JOINT_COLUMNS
-                   if name != "V_OTHER" and name not in layers]
+        resid_key = "V_LOCAL" if "V_LOCAL" in layers else "V_RESID"
+        missing = [resid_key if name == "V_LOCAL" else name
+                   for name, *_ in JOINT_COLUMNS
+                   if name != "V_OTHER"
+                   and (resid_key if name == "V_LOCAL" else name) not in layers]
         if missing:
             raise ValueError("%s is missing layers %s"
                              % (os.path.basename(path), missing))
@@ -228,14 +231,19 @@ def joint_grid_rows(ha_path: str, fe_path: str, *, font_scale: float = 2.5,
             header, layers["VLOS_OBS"].shape,
             half_width_rsun=half_width_rsun, top_pad_rsun=top_pad_rsun)
         panels = []
+        resid_label = (r"$V_{\rm local}$" if resid_key == "V_LOCAL"
+                       else r"$V_{\rm resid}$")
         for name, panel_label, fixed, lsize in JOINT_COLUMNS:
+            key = resid_key if name == "V_LOCAL" else name
+            if name == "V_LOCAL":
+                panel_label = resid_label
             vmax = fixed if fixed is not None else vmax_other
             annotation = None
             if name == "V_OTHER":
                 annotation = "offset %+.4f" % float(
                     np.nanmedian(layers["V_OFFSET"]))
             panels.append(Panel(
-                data=layers[name],
+                data=layers[key],
                 label=panel_label,
                 extent=extent,
                 vmin=-vmax,

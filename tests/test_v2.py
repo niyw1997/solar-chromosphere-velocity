@@ -173,9 +173,29 @@ def test_component_identity(full_run):
 
 
 @requires_vdop
-def test_residual_is_zero_mean_on_quiet_sun(full_run):
-    r = full_run.layers["V_RESID"]
-    assert abs(np.nanmean(r)) < 0.05
+@requires_vdop
+def test_residual_is_zero_mean_on_quiet_sun(tmp_path):
+    """The level-1 residual (V_RESID) is zero-mean on the quiet Sun."""
+    cfg = Config(input_dir=os.path.dirname(VDOP), output_dir=str(tmp_path),
+                 legacy=False, write_vresid=True, log_level="ERROR")
+    res = ChromosphereProcessor(cfg).process_file(VDOP)
+    assert abs(np.nanmean(res.layers["V_RESID"])) < 0.05
+
+
+@requires_vdop
+def test_vlocal_is_vresid_minus_vss(tmp_path):
+    """V_LOCAL = V_RESID - V_SS, exactly, with the intermediates written."""
+    cfg = Config(input_dir=os.path.dirname(VDOP), output_dir=str(tmp_path),
+                 legacy=False, write_vresid=True, write_scan_terms=True,
+                 log_level="ERROR")
+    L = ChromosphereProcessor(cfg).process_file(VDOP).layers
+    assert set(L) >= {"V_LOCAL", "V_RESID", "V_SCAN_SADDLE", "V_FLAT", "V_SS"}
+    ss = L["V_SCAN_SADDLE"].astype(np.float64) + L["V_FLAT"].astype(np.float64)
+    m = np.isfinite(ss) & np.isfinite(L["V_SS"])
+    assert m.any() and np.allclose(ss[m], L["V_SS"][m], atol=1e-6)
+    diff = L["V_RESID"].astype(np.float64) - ss
+    ok = np.isfinite(diff) & np.isfinite(L["V_LOCAL"])
+    assert ok.any() and np.allclose(diff[ok], L["V_LOCAL"][ok], atol=1e-6)
 
 
 @requires_vdop
@@ -214,7 +234,7 @@ def test_multihdu_structure(legacy_run):
         names = [hd.header.get("EXTNAME", "PRIMARY") for hd in h]
         assert names[0] == "PRIMARY"
         for want in ("VLOS_OBS", "VLOS_CORR", "V_DIFFROT", "V_LIMB", "V_MERID",
-                     "V_OFFSET", "V_LARGE", "V_RESID", "V_MODEL_ERR",
+                     "V_OFFSET", "V_LARGE", "V_LOCAL", "V_MODEL_ERR",
                      "MASK_ACTIVE", "FITPARAMS"):
             assert want in names, want
         assert h["MASK_ACTIVE"].data.dtype == np.uint8
@@ -226,6 +246,9 @@ def test_multihdu_structure(legacy_run):
                 assert "BUNIT" not in hd.header
             else:
                 assert hd.header["BUNIT"] == "km/s", name
+        # level-0.5 intermediates are not written unless asked for
+        for unwanted in ("V_RESID", "V_SCAN_SADDLE", "V_FLAT", "V_SS"):
+            assert unwanted not in names, unwanted
         t = h["FITPARAMS"].data
         assert set(t["NAME"]) == set(V1_PARAMS)
         assert len(t) == 9
@@ -366,6 +389,7 @@ def _fake_layers(n=64, ny=48):
         "V_MERID": rng.normal(0, 0.05, (ny, n)).astype(np.float32),
         "V_OFFSET": np.full((ny, n), -0.8394, dtype=np.float32),
         "V_LARGE": rng.normal(0, 1.0, (ny, n)).astype(np.float32),
+        "V_LOCAL": rng.normal(0, 0.85, (ny, n)).astype(np.float32),
         "V_RESID": rng.normal(0, 0.9, (ny, n)).astype(np.float32),
         "V_MODEL_ERR": np.abs(rng.normal(0, 0.01, (ny, n))).astype(np.float32),
         "MASK_ACTIVE": (rng.random((ny, n)) > 0.99).astype(np.uint8),
@@ -738,7 +762,7 @@ def test_read_product_can_restrict_layers(tmp_path):
                                                            read_product)
     ha, _ = _write_joint_pair(tmp_path)
     _, layers = read_product(ha, names=JOINT_LAYERS)
-    assert set(layers) == set(JOINT_LAYERS)
+    assert layers and set(layers) <= set(JOINT_LAYERS)
     _, everything = read_product(ha)
     assert "MASK_ACTIVE" in everything and len(everything) > len(layers)
 
@@ -803,3 +827,96 @@ def test_make_joint_series_writes_one_figure_per_time(tmp_path):
         assert os.path.exists(path) and os.path.basename(path) == (
             "%s_HA_FEI_scv_grid.png" % stamp)
         assert path.startswith(str(out_root / "joint"))
+
+
+# ------------------------------------- scan-saddle and flat-field removal
+def _quadratic_map(shape=(128, 128), coeffs=(0.10, -0.20, -0.15, 0.05,
+                                             0.08, -0.12),
+                   cx=64.0, cy=64.0, radius=50.0):
+    ny, nx = shape
+    y, x = np.mgrid[0:ny, 0:nx]
+    X, Y = (x - cx) / radius, (y - cy) / radius
+    terms = [np.ones_like(X), Y, Y * Y, X, X * Y, X * X]
+    surface = sum(c * t for c, t in zip(coeffs, terms))
+    return surface, {"CX": cx, "CY": cy, "R_SUN": radius}
+
+
+def _stripe_map(lam=40.0, ang=20.0, amp=0.5, shape=(128, 128)):
+    ny, nx = shape
+    y, x = np.mgrid[0:ny, 0:nx]
+    th = np.deg2rad(ang)
+    return amp * np.cos(2 * np.pi * (x * np.cos(th) + y * np.sin(th)) / lam)
+
+
+def test_scan_saddle_recovers_a_known_quadratic():
+    from solar_chromosphere_velocity.scan_correction import scan_saddle
+    truth, hdr = _quadratic_map()
+    rng = np.random.default_rng(4)
+    data = truth + rng.normal(0, 1e-6, truth.shape)
+    fitted, coeffs = scan_saddle(data, hdr)
+    m = np.isfinite(fitted)
+    assert np.max(np.abs(fitted[m] - truth[m])) < 1e-5
+    assert coeffs.shape == (6,)
+
+
+def test_stripe_band_removes_a_synthetic_stripe():
+    from solar_chromosphere_velocity.scan_correction import (
+        detect_stripe_peaks, stripe_band)
+    stripe = _stripe_map(lam=40.0, ang=20.0)
+    remove = stripe_band(stripe, 40.0, 20.0)
+    residual = stripe - remove
+    assert np.nanstd(residual) < 0.25 * np.nanstd(stripe)
+
+    peaks = detect_stripe_peaks(stripe, lambda_min=20.0, lambda_max=120.0)
+    assert peaks, "no stripe detected"
+    lam, ang = peaks[0]
+    assert abs(lam - 40.0) / 40.0 < 0.10, lam
+    assert min(abs(ang - 20.0), 180 - abs(ang - 20.0)) < 8.0, ang
+
+
+def test_protect_weight_spares_active_regions():
+    from solar_chromosphere_velocity.scan_correction import protect_weight
+    ny = nx = 128
+    y, x = np.mgrid[0:ny, 0:nx]
+    blob = 3.0 * np.exp(-((x - 40) ** 2 + (y - 40) ** 2) / (2 * 5.0 ** 2))
+    w = protect_weight(blob, 90.0, 99.0, 1.0)
+    # the weight is smoothed with sigma=12, so a small blob is only partly
+    # suppressed; what matters is the contrast against the quiet Sun
+    assert w[100, 100] > 0.9                    # untouched in the quiet part
+    assert w[40, 40] < 0.75                     # suppressed at the blob
+    assert w[40, 40] < w[100, 100] - 0.1
+
+
+def test_scan_correction_can_be_switched_off():
+    from solar_chromosphere_velocity.scan_correction import scan_correction
+    data = _stripe_map() + 0.7
+    out = scan_correction(data, {"CX": 64.0, "CY": 64.0, "R_SUN": 50.0},
+                          enabled=False)
+    m = np.isfinite(out.local)
+    assert np.allclose(out.local[m], data[m])
+    assert np.allclose(out.ss[m], 0.0)
+
+
+def test_scan_correction_removes_the_systematics_and_keeps_the_blob():
+    """The quadratic and the stripe go, the active-region blob stays."""
+    from solar_chromosphere_velocity.scan_correction import scan_correction
+    saddle, hdr = _quadratic_map()
+    stripe = _stripe_map(lam=40.0, ang=20.0, amp=0.4)
+    ny = nx = 128
+    y, x = np.mgrid[0:ny, 0:nx]
+    blob = 2.0 * np.exp(-((x - 45) ** 2 + (y - 45) ** 2) / (2 * 6.0 ** 2))
+    data = saddle + stripe + blob
+
+    out = scan_correction(data, hdr, stripe_peaks=[(40.0, 20.0)],
+                          protect=(90.0, 99.0, 1.0))
+    before, after = np.nanstd(data), np.nanstd(out.local)
+    assert after < 0.9 * before, (before, after)
+    # The saddle is fitted to the whole map, so the stripe and the blob leak a
+    # little into it; it must still track the true quadratic closely.
+    m = np.isfinite(out.scan_saddle)
+    corr = np.corrcoef(out.scan_saddle[m], saddle[m])[0, 1]
+    assert corr > 0.9, corr
+    assert np.max(np.abs(out.ss[m])) > 0.1      # something was actually removed
+    # the blob survives, because the protection weight damps the flat field
+    iy, ix = 45, 45
+    assert abs(out.local[iy, ix] - blob[iy, ix]) < 0.6

@@ -13,7 +13,7 @@ Major changes vs v1.0.1
   circulation) with ``legacy=True`` to reproduce v1 exactly.
 """
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 __author__ = "Solar Physics Team"
 
 from .config import (
@@ -70,6 +70,7 @@ from .plotting import (
     plot_components,
     plot_from_file,
     plot_layers,
+    residual_layer,
     plot_summary,
     write_component_figures,
 )
@@ -124,6 +125,7 @@ __all__ = [
     "PANEL_TITLES",
     "COMPONENT_PANELS",
     "plot_layers",
+    "residual_layer",
     "plot_from_file",
     "plot_components",
     "plot_summary",

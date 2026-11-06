@@ -1,5 +1,46 @@
 # Changelog
 
+## 2.3.0
+
+### Added
+
+- **Scan-saddle and flat-field removal** (`scan_correction.py`), on by default.
+  The level-1 residual still carries two detector-scale systematics, and both
+  are now removed before the product is written:
+
+  ```
+  V_SS    = V_SCAN_SADDLE + V_FLAT
+  V_LOCAL = V_RESID - V_SS
+  ```
+
+  `V_SCAN_SADDLE` is a full-disk quadratic (`c0 + c1 Y + c2 Y^2 + c3 X + c4 XY +
+  c5 X^2` in normalised disk coordinates), fitted by least squares on every
+  finite pixel.  `V_FLAT` is a parallel-stripe template, either a Fourier
+  band-stop at a wavelength and orientation or an envelope template
+  (demodulate, smooth, re-modulate).  The wave vectors are detected from the
+  map by default (local maxima of the 2-D power spectrum with 25-150 px
+  wavelength), or supplied with `--stripe-peaks LAM:ANG`; an optional second
+  pass re-removes peaks that survived (after/before stripe RMS ratio > 0.4).
+  The flat-field term is multiplied by a smooth active-region weight, so real
+  blobs are not erased.  Defaults follow the spectral line (H-alpha protects
+  strongly, Fe I keeps blobs).
+
+- `V_LOCAL` is now the science layer, and `V_RESID` is demoted to a level-0.5
+  intermediate that is **not written** unless `--write-vresid` is given.  The
+  other intermediates (`V_SCAN_SADDLE`, `V_FLAT`, `V_SS`) come with
+  `--write-scan-terms`.  Figures fall back to `V_RESID` when reading an older
+  product, so archived files still plot.
+
+- The removal is auditable from the product: `SCANCORR`, `SCSADDLE`, `SCFLAT`,
+  `SCMODE`, `SCSTRIPE`, `SCNSTRI`, `SCQUADF`, `SCWMIN`, `RESSTD`, `SCSTD`,
+  `LOCSTD`.  `--no-scan-correction`, `--no-scan-saddle` and
+  `--no-stripe-removal` switch it off or partly off.
+
+The implementation is numerically identical to the consolidated programme from
+the "CHASE Fe与Hα速度场反演绘图" session: `V_SCAN_SADDLE`, `V_FLAT`, the
+protection weight, `V_SS` and the corrected residual all agree to `max|Δ| <
+1e-13` on the 2025-11-11 H-alpha product.
+
 ## 2.2.0
 
 ### Added

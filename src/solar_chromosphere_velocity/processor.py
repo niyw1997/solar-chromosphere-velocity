@@ -28,6 +28,7 @@ from .data_loader import (DataType, SpectralCube, detect_data_type,
                           extract_solar_params, open_plane)
 from .geometry import coord_arrays, solar_coords
 from .inversion import DopplerInverter, DopplerResult
+from .scan_correction import scan_correction
 from .masks import (active_region_mask, apply_disk_exclusion, disk_mask,
                     effective_disk_mask, effective_radius_px)
 from .models import ModelFit, VelocityModel, fit_model_streaming
@@ -237,9 +238,29 @@ class ChromosphereProcessor:
         quiet_mean = float(np.mean(resid[sel])) if sel.any() else 0.0
         resid = (resid - quiet_mean).astype(np.float32)
         resid[~np.isfinite(vcorr)] = np.nan
+
+        # --- scan-saddle and flat-field removal ---------------------------
+        # The level-1 residual still carries the raster scan-saddle and
+        # parallel stripes.  V_SS = V_SCAN_SADDLE + V_FLAT is removed to give
+        # V_LOCAL = V_RESID - V_SS; V_RESID becomes a level-0.5 intermediate.
+        corr = None
+        if cfg.scan_correction:
+            corr = scan_correction(
+                resid,
+                {"CX": params.cx, "CY": params.cy, "R_SUN": params.radius},
+                use_scan_saddle=cfg.scan_saddle,
+                stripe_removal=cfg.stripe_removal,
+                stripe_peaks=cfg.stripe_peaks or None,
+                stripe_mode=cfg.stripe_mode,
+                lambda_min=cfg.stripe_lambda_range[0],
+                lambda_max=cfg.stripe_lambda_range[1],
+                topn=cfg.stripe_topn,
+                second_peaks=cfg.stripe_second_peaks or None,
+                spec_line=params.spec_line)
         timings["reconstruct"] = time.perf_counter() - t0
 
         # layers
+        local = corr.local.astype(np.float32) if corr is not None else resid
         layers = {
             "VLOS_OBS": vlos.astype(np.float32),
             "VLOS_CORR": vcorr,
@@ -248,14 +269,44 @@ class ChromosphereProcessor:
             "V_MERID": comp["V_MERID"],
             "V_OFFSET": comp["V_OFFSET"],
             "V_LARGE": large,
-            "V_RESID": resid,
+            "V_LOCAL": local,
             "V_MODEL_ERR": comp["V_MODEL_ERR"],
             "MASK_ACTIVE": active.astype(np.uint8),
         }
+        if cfg.write_vresid:                 # level-0.5 intermediate
+            layers["V_RESID"] = resid
+        if cfg.write_scan_terms:             # level-0.5 intermediates
+            layers["V_SCAN_SADDLE"] = corr.scan_saddle.astype(np.float32)
+            layers["V_FLAT"] = corr.flat.astype(np.float32)
+            layers["V_SS"] = corr.ss.astype(np.float32)
         res.layers = layers
 
         base_cards["QUIETMN"] = (quiet_mean,
-                                 "mean removed from V_RESID (km/s)")
+                                 "mean removed from the level-1 residual (km/s)")
+        # audit trail for the scan-saddle / flat-field removal
+        if corr is not None and cfg.scan_correction:
+            base_cards["SCANCORR"] = (True, "V_SS removed to form V_LOCAL")
+            base_cards["SCSADDLE"] = (bool(cfg.scan_saddle), "quadratic term fitted")
+            base_cards["SCFLAT"] = (bool(cfg.stripe_removal), "flat-field term fitted")
+            base_cards["SCMODE"] = (str(corr.mode), "stripe template type")
+            if corr.stripe_peaks:
+                base_cards["SCSTRIPE"] = (
+                    ",".join("%.2f:%.1f" % (l, a) for l, a in corr.stripe_peaks),
+                    "stripe wave vectors used (lambda_px:angle_deg)")
+            else:
+                base_cards["SCSTRIPE"] = ("none", "no stripe detected or used")
+            base_cards["SCNSTRI"] = (int(corr.n_detected), "number of stripe wave vectors")
+            base_cards["SCSTD"] = (float(np.nanstd(corr.ss)),
+                                   "std of V_SS (km/s)")
+            base_cards["LOCSTD"] = (float(np.nanstd(local)),
+                                    "std of V_LOCAL (km/s)")
+            base_cards["RESSTD"] = (float(np.nanstd(resid)),
+                                    "std of the level-1 residual (km/s)")
+            base_cards["SCWMIN"] = (float(np.nanmin(corr.protect_weight)),
+                                    "min active-region protection weight")
+            base_cards["SCQUADF"] = (
+                ",".join("%.4g" % c for c in corr.coeffs),
+                "quadratic coefficients c0..c5 of V_SCAN_SADDLE")
         base_cards["MASKBIND"] = (binding, "which radial cut limited the fit")
         base_cards["EFFRAD"] = (float(eff_radius), "effective fit radius (px)")
         if dop is not None:

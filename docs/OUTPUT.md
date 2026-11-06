@@ -29,10 +29,17 @@
 | 5 | `V_MERID` | meridional-circulation component (projected) | km/s |
 | 6 | `V_OFFSET` | systemic translational velocity (global zero point) | km/s |
 | 7 | `V_LARGE` | `V_DIFFROT + V_LIMB + V_MERID + V_OFFSET` | km/s |
-| 8 | `V_RESID` | `VLOS_CORR - V_LARGE`, quiet-Sun mean removed | km/s |
+| 8 | `V_LOCAL` | `V_RESID - V_SS`, the local velocity (science product) | km/s |
 | 9 | `V_MODEL_ERR` | 1-sigma uncertainty of the model surface | km/s |
 | 10 | `MASK_ACTIVE` | 0 = quiet Sun, 1 = active region | — |
 | 11 | `FITPARAMS` | 9 parameters + errors + a `FLAG` column | mixed |
+
+**Level-0.5 intermediates**, written only when asked for
+(`--write-vresid`, `--write-scan-terms`), and inserted between `V_LOCAL` and
+`V_MODEL_ERR` in this order: `V_RESID`, `V_SCAN_SADDLE`, `V_FLAT`, `V_SS`.
+`V_RESID` is the plain level-1 residual; it is no longer part of the default
+product because the scan-saddle and flat-field terms are removed to give
+`V_LOCAL`.  All four carry a level-0.5 marker in their `QUANTITY` card.
 
 `FITPARAMS` columns are NAME, VALUE, ERROR, UNIT, COMPONENT, FORMULA,
 DESCRIPTION, FLAG.  A parameter that is **not identifiable** (the limb
@@ -79,7 +86,40 @@ COMMENT   caveats specific to the layer
 `PRIMARY` additionally carries the fitted parameters (`FIT_*`), their 1-sigma
 errors (`ERR_*`), `NLIMB`, `RMSFIT`, `RSSFIT`, `NPOINT`, `FITCOND`, `V_OFFSET`,
 `LEGACY`, `MODELVER`, `ROTSCALE`, `OMEGA_A` (A as an angular rate, deg/day) and
-`QUIETMN` (the mean removed from `V_RESID`).
+`QUIETMN` (the mean removed from the level-1 residual).
+
+### Scan-saddle and flat-field removal
+
+The level-1 residual still contains two detector-scale systematics, and both are
+removed by default:
+
+```
+V_SS    = V_SCAN_SADDLE + V_FLAT
+V_LOCAL = V_RESID - V_SS
+```
+
+`V_SCAN_SADDLE` is a full-disk quadratic in the normalised disk coordinates
+(`c0 + c1 Y + c2 Y^2 + c3 X + c4 XY + c5 X^2`).  `V_FLAT` is a parallel-stripe
+template, either a Fourier band-stop or an envelope template, evaluated at wave
+vectors detected from the map itself (or given with `--stripe-peaks LAM:ANG`).
+The flat-field term is multiplied by a smooth active-region weight, so real
+blobs survive in `V_LOCAL`.
+
+The removal is recorded in `PRIMARY`:
+
+| card | meaning |
+|---|---|
+| `SCANCORR` | `T` when V_SS was removed |
+| `SCSADDLE`, `SCFLAT` | which of the two terms was fitted |
+| `SCMODE` | `band` or `envelope` |
+| `SCSTRIPE` | wave vectors used, `lambda_px:angle_deg` pairs, or `none` |
+| `SCNSTRI` | number of stripe wave vectors |
+| `SCQUADF` | the six quadratic coefficients `c0..c5` |
+| `SCWMIN` | minimum of the active-region protection weight |
+| `RESSTD`, `SCSTD`, `LOCSTD` | std of the level-1 residual, of V_SS, and of V_LOCAL |
+
+`--no-scan-correction` disables the whole step; `--no-scan-saddle` and
+`--no-stripe-removal` disable one term each.
 
 ## `V_OFFSET` is not a gravitational redshift
 

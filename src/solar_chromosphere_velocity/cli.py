@@ -79,6 +79,26 @@ def build_parser(prog: str = "scv", legacy_default: bool = False):
     inv.add_argument("--raw-correlation", action="store_true",
                      help="do not mean-subtract the correlation windows")
 
+    scn = p.add_argument_group("scan-saddle / flat-field removal")
+    scn.add_argument("--no-scan-correction", action="store_true",
+                     help="keep the level-1 residual as the science product "
+                          "and do not remove V_SS")
+    scn.add_argument("--no-scan-saddle", action="store_true",
+                     help="do not fit the full-disk quadratic term")
+    scn.add_argument("--no-stripe-removal", action="store_true",
+                     help="do not remove the flat-field stripes")
+    scn.add_argument("--stripe-peaks", nargs="*", default=None,
+                     metavar="LAM:ANG",
+                     help="explicit stripe wave vectors, e.g. 47.4:108 "
+                          "(default: detect them from the map)")
+    scn.add_argument("--stripe-mode", choices=["band", "envelope"],
+                     default="band",
+                     help="Fourier band-stop or envelope template")
+    scn.add_argument("--write-vresid", action="store_true",
+                     help="also write the level-0.5 intermediate V_RESID")
+    scn.add_argument("--write-scan-terms", action="store_true",
+                     help="also write V_SCAN_SADDLE, V_FLAT and V_SS")
+
     msk = p.add_argument_group("masks")
     msk.add_argument("--disk-mask-radius", type=float, default=0.95,
                      help="mask everything beyond this fraction of R_sun")
@@ -165,6 +185,20 @@ def _report_ignored(args):
             "these v1 options have no effect in v2: %s", "; ".join(ignored))
 
 
+def _parse_peaks(items):
+    """``["47.4:108", "170:-45"]`` -> ``((47.4, 108.0), (170.0, -45.0))``."""
+    if not items:
+        return ()
+    out = []
+    for item in items:
+        try:
+            lam, ang = str(item).replace(",", ":").split(":")
+            out.append((float(lam), float(ang)))
+        except ValueError:
+            raise SystemExit("--stripe-peaks expects LAM:ANG, got %r" % item)
+    return tuple(out)
+
+
 def config_from_args(args) -> Config:
     kw = dict(
         output_dir=args.output,
@@ -192,6 +226,13 @@ def config_from_args(args) -> Config:
         plot_panels=tuple(args.plot_panels) if args.plot_panels else None,
         plot_per_component=args.plot_per_component,
         plot_overlay_mask=args.plot_overlay_mask,
+        scan_correction=not args.no_scan_correction,
+        scan_saddle=not args.no_scan_saddle,
+        stripe_removal=not args.no_stripe_removal,
+        stripe_peaks=_parse_peaks(args.stripe_peaks),
+        stripe_mode=args.stripe_mode,
+        write_vresid=args.write_vresid,
+        write_scan_terms=args.write_scan_terms,
         joint_grid=args.joint_grid,
         joint_grid_dir=args.joint_grid_dir,
         rice_compression=args.compress,

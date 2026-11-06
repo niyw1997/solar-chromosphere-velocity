@@ -77,6 +77,23 @@ class Config:
     parallel_processes: int = 1
     parallel_processing: bool = False
 
+    # --- scan-saddle and flat-field removal from V_RESID -------------------
+    # Applied by default: the level-1 residual still carries the raster
+    # scan-saddle (a full-disk quadratic) and parallel stripes.  Their sum
+    # V_SS = V_SCAN_SADDLE + V_FLAT is removed to give the local velocity
+    # V_LOCAL = V_RESID - V_SS, and V_RESID becomes a level-0.5 intermediate
+    # that is not written unless asked for.
+    scan_correction: bool = True
+    scan_saddle: bool = True               # the quadratic term
+    stripe_removal: bool = True             # the flat-field term
+    stripe_peaks: Tuple[Tuple[float, float], ...] = ()   # (lam_px, ang_deg); () -> detect
+    stripe_mode: str = "band"               # 'band' | 'envelope'
+    stripe_lambda_range: Tuple[float, float] = (25.0, 150.0)
+    stripe_topn: int = 2
+    stripe_second_peaks: Tuple[Tuple[float, float], ...] = ()
+    write_vresid: bool = False              # keep the level-0.5 V_RESID
+    write_scan_terms: bool = False          # keep V_SCAN_SADDLE / V_FLAT / V_SS
+
     # --- plots / logging --------------------------------------------------
     visualize: bool = False
     plot_dpi: int = 150
@@ -106,6 +123,11 @@ class Config:
             raise ValueError("spatial_strip_rows must be >= 1")
         if self.parallel_processes < 1:
             raise ValueError("parallel_processes must be >= 1")
+        if self.stripe_mode not in ("band", "envelope"):
+            raise ValueError("stripe_mode must be 'band' or 'envelope'")
+        lo, hi = self.stripe_lambda_range
+        if not (0.0 < float(lo) < float(hi)):
+            raise ValueError("stripe_lambda_range must be increasing and positive")
         if self.input_dir and not os.path.isdir(self.input_dir):
             raise ValueError("input_dir does not exist: %s" % self.input_dir)
         if self.legacy and self.zero_point_km_s != 0.0:

@@ -35,6 +35,7 @@ parameters.
   - [Velocity model and the physical meaning of each term](#velocity-model-and-the-physical-meaning-of-each-term)
   - [Parameter estimation and uncertainty](#parameter-estimation-and-uncertainty)
 - [Output](#output)
+- [Scan-saddle and flat-field removal](#scan-saddle-and-flat-field-removal)
 - [Joint H-alpha + Fe I figure](#joint-h-alpha--fe-i-figure)
 - [Inputs](#inputs)
 - [Tests](#tests)
@@ -43,6 +44,27 @@ parameters.
 ---
 
 ## What is new
+
+### 2.3 — scan-saddle and flat-field removal
+
+The level-1 residual still carries two detector-scale systematics.  Both are now
+removed by default, and the result is the layer you should use:
+
+```
+V_SS    = V_SCAN_SADDLE + V_FLAT
+V_LOCAL = V_RESID - V_SS
+```
+
+`V_SCAN_SADDLE` is a full-disk quadratic in the normalised disk coordinates
+(`c0 + c1 Y + c2 Y^2 + c3 X + c4 XY + c5 X^2`).  `V_FLAT` is a parallel-stripe
+template, either a Fourier band-stop or an envelope template, at wave vectors
+detected from the map itself (25-150 px) or given with `--stripe-peaks LAM:ANG`.
+The flat-field term is damped by a smooth active-region weight, so real blobs
+survive.  `V_LOCAL` replaces `V_RESID` in the product; `V_RESID` becomes a
+level-0.5 intermediate that is written only with `--write-vresid`, and
+`--write-scan-terms` adds `V_SCAN_SADDLE`, `V_FLAT` and `V_SS`.
+`--no-scan-correction` switches the whole step off.  See
+[Scan-saddle and flat-field removal](#scan-saddle-and-flat-field-removal).
 
 ### 2.1 — solar-physics naming
 
@@ -213,7 +235,7 @@ cfg = Config(input_dir="/data/level1", output_dir="/data/scv",
 for r in ChromosphereProcessor(cfg).process_directory():
     print(r.srcfile, r.status, round(r.fit.rms_km_s, 4), r.fit.flags)
     # r.layers holds VLOS_OBS, V_DIFFROT, V_LIMB, V_MERID, V_OFFSET,
-    # V_LARGE, V_RESID, V_MODEL_ERR, MASK_ACTIVE as numpy arrays
+    # V_LARGE, V_LOCAL, V_MODEL_ERR, MASK_ACTIVE as numpy arrays
 ```
 
 Plotting is a thin wrapper around matplotlib and is also importable:
@@ -223,7 +245,7 @@ from solar_chromosphere_velocity import plot_from_file, plot_layers
 
 plot_from_file("20260424T080829_HA_scv.fits", "components.png",
                panels=["V_DIFFROT", "V_LIMB", "V_MERID",
-                       "V_OFFSET", "V_LARGE", "V_RESID"])
+                       "V_OFFSET", "V_LARGE", "V_LOCAL"])
 ```
 
 See [`examples/api_example.py`](examples/api_example.py) for a complete script,
@@ -395,11 +417,54 @@ One file per observation time, keyed on the **header** observation time:
 
 The FITS file holds, in order: `PRIMARY`, then one extension per velocity layer
 (`VLOS_OBS`, `VLOS_CORR`, `V_DIFFROT`, `V_LIMB`, `V_MERID`, `V_OFFSET`,
-`V_LARGE`, `V_RESID`, `V_MODEL_ERR`, `MASK_ACTIVE`), then the `FITPARAMS`
+`V_LARGE`, `V_LOCAL`, `V_MODEL_ERR`, `MASK_ACTIVE`), then the `FITPARAMS`
 binary table. See [`docs/OUTPUT.md`](docs/OUTPUT.md) for the exact card-by-card
 contract.
 
 **Outputs are never written next to the inputs.**
+
+## Scan-saddle and flat-field removal
+
+Two detector-scale systematics survive the nine-parameter flow model, and both
+are removed by default before the product is written:
+
+$$V_{SS} = V_{\rm scan\_saddle} + V_{\rm flat}, \qquad
+  V_{\rm local} = V_{\rm resid} - V_{SS}$$
+
+**Scan saddle.** A full-disk quadratic fitted by least squares on every finite
+pixel, in the normalised disk coordinates `X = (x - xc) / R_sun` and
+`Y = (y - yc) / R_sun`:
+
+$$V_{\rm scan\_saddle} = c_0 + c_1 Y + c_2 Y^2 + c_3 X + c_4 XY + c_5 X^2$$
+
+It absorbs the raster scan-saddle and any residual zero-point gradient that the
+flow model cannot represent.
+
+**Flat field (stripes).** A parallel-stripe template at wavelength `lambda` and
+orientation `theta`, removed either by a Fourier band-stop (Gaussian notch at
+`+/- k0` with `sigma = 0.30 k0`, applied through a cosine taper so the disk edge
+does not ring) or by an envelope template (demodulate `exp(-i k . r)`, smooth
+with `sigma = 80 px`, re-modulate, times two).  The wave vectors are **detected
+from the map itself**: local maxima of the 2-D power spectrum with wavelengths
+between 25 and 150 px, which is the detector-scale stripe range.  Supply
+`--stripe-peaks 47.4:108` to pin them instead.  A second pass can re-remove
+peaks that survived, using the after/before stripe RMS ratio (trigger above 0.4).
+
+**Active-region protection.** Real blobs must not be erased by the flat field,
+so the template is multiplied by a smooth weight
+
+$$W = 1 - s\left(1 - \mathrm{clip}\left(
+  \frac{h - \sigma_{|V|}}{h - l}, 0, 1\right)\right)$$
+
+with `l` and `h` the 90th and 99th percentiles of the smoothed absolute velocity
+(H-alpha) or the 98th and 99.8th (Fe I), and `s = 1` or `0.6`; the weight is then
+smoothed with `sigma = 12 px`.  Where a blob sits, `W` goes to zero and the
+stripe term is not removed; in the quiet Sun `W = 1`.
+
+Everything is recorded in `PRIMARY` (`SCANCORR`, `SCSTRIPE`, `SCQUADF`,
+`RESSTD`, `SCSTD`, `LOCSTD`, ...), so a product can be audited after the fact.
+`--no-scan-correction`, `--no-scan-saddle` and `--no-stripe-removal` switch it
+off or partly off.
 
 ## Joint H-alpha + Fe I figure
 
@@ -409,7 +474,7 @@ per observation time**: one row per line, one column per physical component.
 ![joint H-alpha and Fe I component grid](docs/figs/joint_grid_20251111.png)
 
 Rows are H-alpha and Fe I at the same observing time; columns are
-`VLOS_OBS`, `V_DIFFROT`, `V_LIMB + V_MERID + V_OFFSET` and `V_RESID`, so the four
+`VLOS_OBS`, `V_DIFFROT`, `V_LIMB + V_MERID + V_OFFSET` and `V_LOCAL`, so the four
 panels of a row read directly as the decomposition of the observed velocity
 field. The layout is fixed in `plotting_grid.py` so every figure looks the same:
 

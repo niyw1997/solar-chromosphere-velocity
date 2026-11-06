@@ -35,7 +35,7 @@
        \large Method and Implementation Manual\\[1mm]
        \normalsize Program flow, streaming framework, spectral fitting and
        the velocity model}
-\author{\code{solar-chromosphere-velocity} v2.2}
+\author{\code{solar-chromosphere-velocity} v2.3}
 \date{\today}
 
 \begin{document}
@@ -542,6 +542,99 @@ the reported $1\sigma$ is.  Blanking the covariance would turn the entire
 $\sqrt{\bm{x}^\top\Sigma\bm{x}}$.
 
 % ===========================================================================
+\section{Scan-saddle and flat-field removal}
+\label{sec:correction}
+% ===========================================================================
+
+The nine-parameter model of Section~\ref{sec:model} describes the large-scale
+flow.  Two detector-scale systematics survive it, and both are removed from the
+level-1 residual by default:
+
+\begin{equation}
+  \boxed{\;V_{SS} = V_{\mathrm{scan\_saddle}} + V_{\mathrm{flat}},
+  \qquad V_{\mathrm{local}} = V_{\mathrm{resid}} - V_{SS}\;}
+  \label{eq:ss}
+\end{equation}
+
+\paragraph{Scan saddle.}  A full-disk quadratic, fitted by least squares on every
+finite pixel in the normalised disk coordinates
+$X=(x-x_c)/R_\odot$ and $Y=(y-y_c)/R_\odot$:
+\begin{equation}
+  V_{\mathrm{scan\_saddle}} = c_0 + c_1 Y + c_2 Y^2 + c_3 X + c_4 XY + c_5 X^2 .
+\end{equation}
+It absorbs the raster scan-saddle pattern and any residual zero-point gradient
+that the flow model cannot represent.  Because the basis is complete for
+quadratic surfaces, the recovered surface does not depend on the choice of
+normalisation radius; only the coefficients do.
+
+\paragraph{Flat field.}  Parallel stripes at wavelength $\lambda$ and
+orientation $\theta$, removed by one of two templates.
+
+The \emph{band-stop} transforms the map after applying a cosine taper
+$T$ (distance transform scaled to 25\,px, smoothed with $\sigma=5$) and
+subtracts the Gaussian notches at $\pm \bm{k}_0$,
+\begin{equation}
+  G(\bm{k}) = \exp\!\left(-\frac{|\bm{k}-\bm{k}_0|^2}{2\sigma_k^2}\right)
+            + \exp\!\left(-\frac{|\bm{k}+\bm{k}_0|^2}{2\sigma_k^2}\right),
+  \qquad \sigma_k = 0.30\,k_0,
+  \qquad k_0 = 1/\lambda,
+\end{equation}
+then divides by the taper so the disk edge does not ring.
+
+The \emph{envelope} template demodulates the stripe phase, smooths the complex
+field, and re-modulates it,
+\begin{equation}
+  V_{\mathrm{flat}} = 2\,\Re\!\left[
+    \big(G_{\sigma} * (V e^{-i\phi})\big) e^{+i\phi}\right],
+  \qquad \phi = \bm{k}_0\cdot\bm{r},
+\end{equation}
+with $\sigma = 80$\,px; it follows a stripe whose amplitude varies across the
+disk while keeping its wavelength fixed.
+
+\paragraph{Finding the wave vectors.}  By default the stripe wave vectors are
+detected from the map: the 2-D power spectrum is computed on a tapered image,
+local maxima are collected, and only peaks with
+$25\,\mathrm{px} \le \lambda \le 150\,\mathrm{px}$ and a power above eight times
+the median of that annulus are kept.  The 25--150\,px interval is the
+detector-scale stripe range: shorter than any large-scale flow pattern and
+longer than pixel noise.  The number of vectors is set by
+\code{stripe\_topn} (default 2) and can be pinned explicitly with
+\code{stripe\_peaks} or \code{--stripe-peaks LAM:ANG}.
+
+A second pass can re-remove peaks that survived the first one.  For each
+residual wave vector the after/before stripe RMS ratio is
+\begin{equation}
+  R = \frac{\mathrm{std}\big[B\,(V_{\mathrm{after}})\big]}
+           {\mathrm{std}\big[B\,(V_{\mathrm{before}})\big]},
+\end{equation}
+and $R > 0.4$ triggers a localised second subtraction weighted by the local
+stripe amplitude, so quiet areas are not over-subtracted.
+
+\paragraph{Active-region protection.}  Real structures must not be erased by the
+flat field, so the template is multiplied by a smooth weight
+\begin{equation}
+  W = 1 - s\left(1 - \mathrm{clip}\!\left(
+      \frac{h - \sigma_{|V|}}{h - l},\,0,\,1\right)\right),
+\end{equation}
+where $\sigma_{|V|}$ is the absolute velocity smoothed with $\sigma = 8$\,px,
+$l$ and $h$ are its 90th and 99th percentiles for H$\alpha$ (98th and 99.8th for
+Fe\,\textsc{i}), and $s = 1$ ($0.6$ for Fe\,\textsc{i}) is the suppression depth;
+$W$ is then smoothed with $\sigma = 12$\,px.  The protected flat field is
+$W V_{\mathrm{flat}}$, so the stripes vanish in the quiet Sun and are damped
+where a blob sits.
+
+\paragraph{Products and audit trail.}  $V_{\mathrm{local}}$ replaces the level-1
+residual as the science layer.  The plain residual and the three correction
+terms are kept as \emph{level-0.5 intermediates} that are written only when
+asked for.  Every quantity used is recorded in \code{PRIMARY}
+(\code{SCANCORR}, \code{SCSADDLE}, \code{SCFLAT}, \code{SCMODE},
+\code{SCSTRIPE}, \code{SCNSTRI}, \code{SCQUADF}, \code{SCWMIN},
+\code{RESSTD}, \code{SCSTD}, \code{LOCSTD}), so a product can be audited after
+the fact.  \code{--no-scan-correction} disables the step,
+\code{--no-scan-saddle} and \code{--no-stripe-removal} disable one term each.
+
+
+% ===========================================================================
 \section{Streaming and parallel framework}
 \label{sec:parallel}
 % ===========================================================================
@@ -676,11 +769,11 @@ orders of magnitude, and the axes are in arcseconds relative to disk centre
 \includegraphics[width=\textwidth]{figs/ha_components.png}
 \caption{H$\alpha$, 2026-04-24 08:08:29 UT
 (\code{RSM20260424T080829\_0016\_HA.fits}).  The four model terms, their sum and
-the residual.  \code{V\_DIFFROT} is the expected east--west antisymmetric
+the local velocity.  \code{V\_DIFFROT} is the expected east--west antisymmetric
 differential-rotation pattern ($\sigma=0.826$\,km\,s$^{-1}$),
 \code{V\_MERID} is north--south antisymmetric ($\sigma=0.008$\,km\,s$^{-1}$),
 \code{V\_OFFSET} is uniform at $-0.196$\,km\,s$^{-1}$ and
-\code{V\_RESID} has $\sigma=0.853$\,km\,s$^{-1}$.  The \code{V\_LIMB} panel is
+\code{V\_LOCAL} (the residual with the scan-saddle and flat-field terms removed) has $\sigma=0.825$\,km\,s$^{-1}$.  The \code{V\_LIMB} panel is
 blank because for this line the fit pins $e$ to its lower bound $e=0$, so the
 layer is identically zero (the colour bar spans $10^{-9}$\,km\,s$^{-1}$); the
 parameter is flagged \code{PINNED\_AT\_ZERO} rather than reported as a
@@ -691,14 +784,14 @@ measurement.}
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{figs/fe_components.png}
-\caption{Fe\,\textsc{i}, 2025-11-11 09:52:05 UT
-(\code{RSM20251111T095205\_0000\_FE.fits}), from the same pipeline with no
+\caption{Fe\,\textsc{i}, 2025-11-11 09:54:27 UT
+(\code{RSM20251111T095427\_0002\_FE.fits}), from the same pipeline with no
 change other than the input line: the dispersion gives
-\code{CALSPEC}$\,=2.2108$\,km\,s$^{-1}$/pixel against $2.2139$ for H$\alpha$,
-and the output is tagged \code{\_FEI}.  Here $e=0.186$\,km\,s$^{-1}$ is a
+\code{CALSPEC}$\,=2.2110$\,km\,s$^{-1}$/pixel against $2.2139$ for H$\alpha$,
+and the output is tagged \code{\_FEI}.  Here $e=0.212$\,km\,s$^{-1}$ is a
 genuine positive fit, so \code{V\_LIMB} shows a real limb-brightening ring
 rather than a blank panel, and the residual is three times smaller
-($\sigma=0.249$\,km\,s$^{-1}$).  This pair of figures illustrates why
+($\sigma=0.237$\,km\,s$^{-1}$).  This pair of figures illustrates why
 identifiability is reported explicitly: the same code flags \code{e} for
 H$\alpha$ and does not flag it for Fe\,\textsc{i}, while $N$ is flagged
 \code{SCAN\_GRID} in both cases.}

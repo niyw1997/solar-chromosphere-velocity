@@ -38,7 +38,7 @@ __all__ = [
 PANEL_ORDER = (
     "VLOS_OBS", "VLOS_CORR",
     "V_DIFFROT", "V_LIMB", "V_MERID", "V_OFFSET",
-    "V_LARGE", "V_RESID", "V_MODEL_ERR", "MASK_ACTIVE",
+    "V_LARGE", "V_LOCAL", "V_RESID", "V_MODEL_ERR", "MASK_ACTIVE",
 )
 
 PANEL_TITLES = {
@@ -49,14 +49,29 @@ PANEL_TITLES = {
     "V_MERID": "Meridional circulation",
     "V_OFFSET": "Systemic translation (offset)",
     "V_LARGE": "Large-scale flow (sum)",
-    "V_RESID": "Residual velocity",
+    "V_LOCAL": "Local velocity (V_SS removed)",
+    "V_RESID": "Level-1 residual (level-0.5 intermediate)",
     "V_MODEL_ERR": "Model 1-sigma",
     "MASK_ACTIVE": "Active-region mask",
 }
 
 #: the four model terms plus the total and the residual
 COMPONENT_PANELS = ("V_DIFFROT", "V_LIMB", "V_MERID", "V_OFFSET",
-                    "V_LARGE", "V_RESID")
+                    "V_LARGE", "V_LOCAL")
+
+
+def residual_layer(data):
+    """Which residual layer to plot.
+
+    ``V_LOCAL`` is the science product (level-1 residual with V_SS removed);
+    older products only carry the level-0.5 ``V_RESID``, which is used as a
+    fallback so figures still work on archived files.
+    """
+    if "V_LOCAL" in data:
+        return "V_LOCAL"
+    if "V_RESID" in data:
+        return "V_RESID"
+    return "V_LOCAL"
 
 #: layers that are not signed velocities
 _MASK_LAYERS = ("MASK_ACTIVE",)
@@ -268,8 +283,9 @@ def plot_summary(layers, outfile: str, dpi: int = 150, header=None, **kwargs) ->
     fig, axes = plt.subplots(2, 3, dpi=dpi, figsize=(14.4, 8.6))
     axes = axes.ravel()
 
+    resid_name = residual_layer(data)
     for ax, name in ((axes[0], "VLOS_OBS"), (axes[1], "V_LARGE"),
-                     (axes[2], "V_RESID"), (axes[4], "V_MODEL_ERR")):
+                     (axes[2], resid_name), (axes[4], "V_MODEL_ERR")):
         if name in data:
             _draw_panel(ax, name, data[name], header)
             ax.set_title("%s\n%s" % (name, PANEL_TITLES.get(name, "")), fontsize=10)
@@ -277,8 +293,8 @@ def plot_summary(layers, outfile: str, dpi: int = 150, header=None, **kwargs) ->
             ax.axis("off")
 
     ax = axes[3]
-    if "V_RESID" in data:
-        r = np.asarray(data["V_RESID"], dtype=np.float64)
+    if resid_name in data:
+        r = np.asarray(data[resid_name], dtype=np.float64)
         r = r[np.isfinite(r)]
         if r.size:
             ax.hist(r, bins=120, range=(-4, 4), density=True, alpha=0.75,
@@ -292,7 +308,7 @@ def plot_summary(layers, outfile: str, dpi: int = 150, header=None, **kwargs) ->
                 ax.legend(fontsize=8)
     ax.set_xlabel("residual [km/s]")
     ax.set_ylabel("density")
-    ax.set_title("V_RESID distribution", fontsize=10)
+    ax.set_title("%s distribution" % resid_name, fontsize=10)
 
     ax = axes[5]
     if "MASK_ACTIVE" in data:
