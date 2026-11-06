@@ -176,3 +176,6 @@ v2_out*/
 
 # Chinese companion of the manual: kept locally, deliberately NOT published
 docs/manual_zh.*
+
+# Chinese quick start is kept local, like the Chinese manual
+docs/QUICKSTART_zh.*

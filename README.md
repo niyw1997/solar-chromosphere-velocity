@@ -25,6 +25,7 @@ parameters.
 - [Performance](#performance)
 - [Install](#install)
 - [Quick start — single machine](#quick-start--single-machine)
+  ([one-page version](docs/QUICKSTART.md))
 - [Running on a cluster (BlueWhale / LSF)](#running-on-a-cluster-bluewhale--lsf)
 - [Python API](#python-api)
 - [Method](#method)
@@ -180,6 +181,9 @@ pip install --no-deps -e .
 ```
 
 ## Quick start — single machine
+
+A one-page condensation of this section, written for a first run, is
+[`docs/QUICKSTART.md`](docs/QUICKSTART.md).
 
 ```bash
 # one observation time, complete physics

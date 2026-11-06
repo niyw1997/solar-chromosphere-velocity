@@ -134,7 +134,7 @@ def build_parser(prog: str = "scv", legacy_default: bool = False):
     out = p.add_argument_group("plots / logging")
     out.add_argument("--visualize", "-v", action="store_true",
                      help="write multi-panel figures next to the FITS product")
-    out.add_argument("--plot-dpi", type=int, default=150)
+    out.add_argument("--plot-dpi", type=int, default=200)
     out.add_argument("--plot-format", default="png")
     out.add_argument("--plot-panels", nargs="*", default=None,
                      help="layers to draw, in order (default: all present)")
