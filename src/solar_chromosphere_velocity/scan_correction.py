@@ -58,10 +58,39 @@ __all__ = [
 
 #: protection presets, per spectral line: (lo_pct, hi_pct, strength)
 PROTECTION_PRESETS = {
-    "HA": (90.0, 99.0, 1.0),     # H-alpha is structured, protect strongly
-    "FEI": (98.0, 99.8, 0.6),    # Fe I keeps blobs, weaker suppression
+    "HALPHA": (90.0, 99.0, 1.0),   # H-alpha is structured, protect strongly
+    "FEI": (99.0, 99.9, 0.35),     # Fe I: compact active regions, shallow hold
 }
 DEFAULT_PROTECTION = (95.0, 99.5, 1.0)
+
+#: Settings for the fringe removal itself, one entry per spectral line.  Fe I
+#: forms lower in the atmosphere, so its active regions project onto a smaller
+#: area; a shallower and narrower protection footprint leaves more of the disk
+#: available for the removal, and a wider notch with a third wave vector can be
+#: afforded without reaching into the flow.  Values passed explicitly override
+#: these.
+STRIPE_PROFILES = {
+    "HALPHA": dict(band_width=0.20, topn=2, protect_sigma=8.0,
+                   protect_smooth=12.0, second_contrast=40.0,
+                   second_rounds=1, second_target=0.40),
+    "FEI": dict(band_width=0.24, topn=3, protect_sigma=5.0,
+                protect_smooth=7.0, second_contrast=150.0,
+                second_rounds=2, second_target=0.25),
+}
+DEFAULT_STRIPE_PROFILE = STRIPE_PROFILES["HALPHA"]
+
+
+def _normalised_line(spec_line):
+    """Resolve a spectral-line name through the alias table."""
+    from .constants import SPECLINE_ALIASES
+    key = str(spec_line or "").strip().upper()
+    return SPECLINE_ALIASES.get(key, key)
+
+
+def stripe_profile(spec_line):
+    """Fringe-removal settings for one spectral line."""
+    return dict(STRIPE_PROFILES.get(_normalised_line(spec_line),
+                                    DEFAULT_STRIPE_PROFILE))
 
 
 @dataclass
@@ -380,22 +409,24 @@ def scan_correction(velocity, header, *, enabled: bool = True,
                     stripe_removal: bool = True,
                     stripe_peaks: Optional[Iterable[Sequence[float]]] = None,
                     stripe_mode: str = "band",
-                    lambda_min: float = 25.0, lambda_max: float = 150.0,
-                    topn: int = 3, band_width: float = 0.45,
+                    lambda_min: float = 30.0, lambda_max: float = 1500.0,
+                    topn: Optional[int] = None, band_width: Optional[float] = None,
                     envelope_sigma: float = 80.0,
                     second_peaks: Optional[Iterable[Sequence[float]]] = None,
                     second_ratio: float = 0.4,
-                    second_auto: bool = True,
+                    second_auto: bool = False,
                     flat_strength: float = 1.0,
                     protect: Optional[Sequence[float]] = None,
-                    protect_sigma: float = 8.0,
-                    protect_smooth: float = 12.0,
+                    protect_sigma: Optional[float] = None,
+                    protect_smooth: Optional[float] = None,
                     spec_line: str = "") -> ScanCorrection:
     """Compute ``V_SS`` and ``V_LOCAL`` for one residual map.
 
     ``stripe_peaks`` given explicitly is used as is; otherwise the wave vectors
-    are detected from the map.  ``protect`` is ``(lo_pct, hi_pct, strength)`` and
-    defaults to the preset for the spectral line.
+    are detected from the map.  ``protect`` is ``(lo_pct, hi_pct, strength)``.
+    ``topn``, ``band_width``, ``protect_sigma`` and ``protect_smooth`` default to
+    the profile of the spectral line, which gives Fe I a harder removal than
+    H-alpha, and can be overridden per call.
 
     The strength of the flat-field removal is controlled by ``band_width`` (how
     wide the notch is in units of the central wavenumber), ``topn`` (how many
@@ -405,6 +436,14 @@ def scan_correction(velocity, header, *, enabled: bool = True,
     threshold is applied and ``protect_smooth`` dilates the protected area, so
     the active regions are spared over a larger footprint than the raw blob.
     """
+    prof = stripe_profile(spec_line)
+    topn = int(prof["topn"] if topn is None else topn)
+    band_width = float(prof["band_width"] if band_width is None else band_width)
+    protect_sigma = float(prof["protect_sigma"] if protect_sigma is None
+                          else protect_sigma)
+    protect_smooth = float(prof["protect_smooth"] if protect_smooth is None
+                           else protect_smooth)
+
     d = np.asarray(velocity, dtype=np.float64)
     finite = np.isfinite(d)
     zeros = np.zeros_like(d)
@@ -479,8 +518,8 @@ def scan_correction(velocity, header, *, enabled: bool = True,
 
     # 3) protect active regions and assemble
     lo, hi, strength = (tuple(protect) if protect is not None
-                        else PROTECTION_PRESETS.get(str(spec_line).upper(),
-                                                    DEFAULT_PROTECTION))
+                        else PROTECTION_PRESETS.get(
+                            _normalised_line(spec_line), DEFAULT_PROTECTION))
     weight = protect_weight(d, lo, hi, strength, protect_sigma, protect_smooth)
     flat = float(flat_strength) * weight * flat_raw
     ss = saddle + flat
@@ -563,8 +602,12 @@ def second_pass_local(local, header, *, protect=None, spec_line: str = "",
                       lambda_min: float = 30.0, lambda_max: float = 1500.0,
                       topn: int = 2, angle_center=None,
                       angle_tolerance: float = 8.0,
-                      min_contrast: float = 40.0, band_width: float = 0.20,
-                      protect_sigma: float = 8.0, protect_smooth: float = 12.0,
+                      min_contrast: Optional[float] = None,
+                      band_width: Optional[float] = None,
+                      protect_sigma: Optional[float] = None,
+                      protect_smooth: Optional[float] = None,
+                      max_rounds: Optional[int] = None,
+                      target_ratio: Optional[float] = None,
                       exclude: Iterable[Sequence[float]] = ()
                       ) -> LocalSecondPass:
     """Remove what a first fringe pass left, working on the corrected map.
@@ -582,6 +625,18 @@ def second_pass_local(local, header, *, protect=None, spec_line: str = "",
     ``exclude`` drops wave vectors already removed, so nothing is subtracted
     twice.
     """
+    prof = stripe_profile(spec_line)
+    min_contrast = float(prof["second_contrast"] if min_contrast is None
+                         else min_contrast)
+    band_width = float(prof["band_width"] if band_width is None else band_width)
+    protect_sigma = float(prof["protect_sigma"] if protect_sigma is None
+                          else protect_sigma)
+    protect_smooth = float(prof["protect_smooth"] if protect_smooth is None
+                           else protect_smooth)
+    max_rounds = int(prof["second_rounds"] if max_rounds is None else max_rounds)
+    target_ratio = float(prof["second_target"] if target_ratio is None
+                         else target_ratio)
+
     d = np.asarray(local, dtype=np.float64)
     finite = np.isfinite(d)
     empty = LocalSecondPass(np.zeros_like(d), d, (), 0, {})
@@ -615,12 +670,50 @@ def second_pass_local(local, header, *, protect=None, spec_line: str = "",
     for lam, ang in kept:
         contrasts[(lam, ang)] = float(measured.get((lam, ang), np.nan))
 
-    bands = stripe_bands(d, kept, band_width, prepared=prepared)
     lo, hi, strength = (tuple(protect) if protect is not None
-                        else PROTECTION_PRESETS.get(str(spec_line).upper(),
+                        else PROTECTION_PRESETS.get(_normalised_line(spec_line),
                                                     DEFAULT_PROTECTION))
-    wprot = protect_weight(d, lo, hi, strength, protect_sigma, protect_smooth)
-    flat = wprot * bands
+
+    # Remove, measure what is left along the same vectors, and remove again
+    # while the fringe is still there.  A strong fringe therefore takes more
+    # rounds than a weak one, which is the sense in which the removal follows the
+    # fringe strength rather than a fixed setting.
+    cur = d
+    total = np.zeros_like(d)
+    used: list = []
+    for _ in range(max(int(max_rounds), 1)):
+        prepared_cur = _prepared(cur)
+        more = detect_stripe_peaks(
+            cur, lambda_min=lambda_min, lambda_max=lambda_max,
+            topn=int(topn) + len(used), min_contrast=min_contrast,
+            prepared=prepared_cur, angle_tolerance=angle_tolerance,
+            angle_center=angle_center, contrast_out=measured)
+        fresh = []
+        for lam, ang in more:
+            if any(abs(lam / float(el) - 1.0) < 0.05
+                   and abs(((ang - float(ea) + 90.0) % 180.0) - 90.0) < 3.0
+                   for el, ea in used):
+                continue
+            fresh.append((float(lam), float(ang)))
+            if len(fresh) >= int(topn):
+                break
+        if not fresh:
+            break
+        bands = stripe_bands(cur, fresh, band_width, prepared=prepared_cur)
+        wcur = protect_weight(cur, lo, hi, strength, protect_sigma, protect_smooth)
+        step = wcur * bands
+        before = float(np.nanstd(bands))
+        after = float(np.nanstd(stripe_bands(cur - step, fresh, band_width)))
+        cur = np.where(finite, cur - step, np.nan)
+        total = total + step
+        used.extend(fresh)
+        if before <= 0 or after / before <= target_ratio:
+            break
+
+    flat = total
     out = np.where(finite, d - flat, np.nan)
-    return LocalSecondPass(flat=flat, local=out, stripe_peaks=tuple(kept),
-                           n_detected=len(kept), contrast=contrasts)
+    final = tuple(used)
+    return LocalSecondPass(flat=flat, local=out, stripe_peaks=final,
+                           n_detected=len(final),
+                           contrast={k: v for k, v in measured.items()
+                                     if k in set(final)})

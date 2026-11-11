@@ -1,5 +1,36 @@
 # Changelog
 
+## 2.5.1
+
+### Changed
+
+- **Fe I gets its own fringe-removal setting.**  Fe I forms lower in the
+  atmosphere, so its active regions cover a smaller area and the protection
+  footprint can be shallower.  The line now uses a wider notch (0.24 k0 instead of
+  0.20), a third wave vector, a narrower protection footprint (5 and 7 px instead
+  of 8 and 12), the protection preset (99, 99.9, 0.35) instead of (98, 99.8, 0.6),
+  and a second pass that iterates up to two rounds while the fringe remains.  A
+  strong fringe therefore takes more rounds than a weak one, so the removal
+  follows the fringe rather than a fixed multiplier.
+
+- The second pass accepts a peak only above 150 times the annulus median.  The
+  value was set from cross-line evidence: on 2026-10-30 the two wave vectors that
+  appear in both lines stand at 6965 and 2992 in Fe I and at 88 and 303 in
+  H-alpha, while the additions that appear only in Fe I sit at 37 to 68, which is
+  two to four times the noise and indistinguishable from it.
+
+Measured on four events, against 2.5.0:
+
+| event | V_LOCAL before | after | further reduction | 20-50 px power |
+|---|---|---|---|---|
+| 2025-11-11 | 0.2410 | 0.2365 | 1.87 % | -1.7 % |
+| 2026-10-10 | 0.2412 | 0.2366 | 1.89 % | -1.8 % |
+| 2026-10-30 | 0.2002 | 0.1923 | 3.93 % | -3.1 % |
+| 2026-11-04 | 0.2198 | 0.2145 | 2.42 % | -1.5 % |
+
+Every wave vector removed in those runs stands at least 231 above the median, and
+`PRIMARY` records which ones through `SC2PEAK` and `SC2CONT`.
+
 ## 2.5.0
 
 ### Added

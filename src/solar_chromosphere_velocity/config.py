@@ -91,8 +91,8 @@ class Config:
     # The fringes that matter are full-image-scale, parallel and spatially
     # low-frequency: wavelengths run to of order the image size, not to 150 px.
     stripe_lambda_range: Tuple[float, float] = (30.0, 1500.0)
-    stripe_topn: int = 2                   # parallel stripes removed
-    stripe_band_width: float = 0.20        # narrow notch: only the stripe itself
+    stripe_topn: Optional[int] = None      # None -> the per-line profile
+    stripe_band_width: Optional[float] = None   # None -> the per-line profile
     stripe_angle_tolerance: float = 10.0   # peaks must share one orientation
     stripe_envelope_sigma: float = 80.0    # envelope smoothing, px
     stripe_strength: float = 1.0           # multiplier on V_FLAT
@@ -103,12 +103,12 @@ class Config:
     # fringe direction is sometimes still visible, so look again with the search
     # locked to that direction and a contrast gate well above the noise
     local_second_pass: bool = True
-    local_second_pass_contrast: float = 40.0
+    local_second_pass_contrast: Optional[float] = None   # None -> per line
     local_second_pass_topn: int = 2
 
     # active-region protection: smooth, and spread over a larger footprint
-    protect_sigma: float = 8.0             # smooth the velocity before thresholding
-    protect_smooth: float = 12.0           # dilate the protected area, px
+    protect_sigma: Optional[float] = None  # None -> the per-line profile
+    protect_smooth: Optional[float] = None  # None -> the per-line profile
     write_vresid: bool = False              # keep the level-0.5 V_RESID
     write_scan_terms: bool = False          # keep V_SCAN_SADDLE / V_FLAT / V_SS
 
@@ -146,6 +146,11 @@ class Config:
         lo, hi = self.stripe_lambda_range
         if not (0.0 < float(lo) < float(hi)):
             raise ValueError("stripe_lambda_range must be increasing and positive")
+        for name in ("stripe_topn", "stripe_band_width", "protect_sigma",
+                     "protect_smooth", "local_second_pass_contrast"):
+            value = getattr(self, name)
+            if value is not None and float(value) <= 0:
+                raise ValueError("%s must be positive when given" % name)
         if self.input_dir and not os.path.isdir(self.input_dir):
             raise ValueError("input_dir does not exist: %s" % self.input_dir)
         if self.legacy and self.zero_point_km_s != 0.0:

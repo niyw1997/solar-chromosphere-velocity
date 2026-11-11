@@ -94,25 +94,27 @@ def build_parser(prog: str = "scv", legacy_default: bool = False):
     scn.add_argument("--stripe-mode", choices=["band", "envelope"],
                      default="band",
                      help="Fourier band-stop or envelope template")
-    scn.add_argument("--stripe-topn", type=int, default=2,
-                     help="number of parallel stripe wave vectors to remove")
-    scn.add_argument("--stripe-band-width", type=float, default=0.20,
+    scn.add_argument("--stripe-topn", type=int, default=None,
+                     help="number of parallel stripe wave vectors to remove "
+                          "(default: per-line profile, 2 for H-alpha, 3 for Fe I)")
+    scn.add_argument("--stripe-band-width", type=float, default=None,
                      help="notch width in units of the central wavenumber; "
-                          "larger removes a broader band")
+                          "larger removes a broader band (default: per-line "
+                          "profile, 0.20 for H-alpha, 0.32 for Fe I)")
     scn.add_argument("--stripe-strength", type=float, default=1.0,
                      help="multiplier on the flat-field template")
     scn.add_argument("--no-local-second-pass", action="store_true",
                      help="do not look again for fringes on the corrected map")
-    scn.add_argument("--local-second-pass-contrast", type=float, default=40.0,
+    scn.add_argument("--local-second-pass-contrast", type=float, default=None,
                      help="contrast gate for the second pass, in multiples of "
                           "the annulus median (noise sits below about 16)")
     scn.add_argument("--stripe-second-pass", action="store_true",
                      help="re-detect and remove the stripes that survive the "
                           "first pass (off by default: it can over-subtract)")
-    scn.add_argument("--protect-sigma", type=float, default=8.0,
+    scn.add_argument("--protect-sigma", type=float, default=None,
                      help="smoothing of the velocity before the "
                           "active-region protection threshold, px")
-    scn.add_argument("--protect-smooth", type=float, default=12.0,
+    scn.add_argument("--protect-smooth", type=float, default=None,
                      help="dilation of the protected active-region area, px")
     scn.add_argument("--write-vresid", action="store_true",
                      help="also write the level-0.5 intermediate V_RESID")

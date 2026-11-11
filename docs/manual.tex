@@ -35,7 +35,7 @@
        \large Method and Implementation Manual\\[1mm]
        \normalsize Program flow, streaming framework, spectral fitting and
        the velocity model}
-\author{\code{solar-chromosphere-velocity} v2.5}
+\author{\code{solar-chromosphere-velocity} v2.5.1}
 \date{\today}
 
 \begin{document}
@@ -634,6 +634,27 @@ one pass; centre, the term the second pass removes; right, the final map.  The
 removed term is a coherent parallel fringe, which is what separates it from the
 noise that a free search would also pick up.}
 \label{fig:second-pass}
+\end{figure}
+
+
+\paragraph{A harder setting for Fe\,\textsc{i}.}  Fe\,\textsc{i} forms lower in the
+atmosphere, its active regions cover a smaller area, and the protection footprint
+can therefore be shallower.  That line uses a wider notch, a third wave vector, a
+narrower protection footprint, and a second pass that iterates while the fringe
+remains, so a strong fringe takes more rounds than a weak one.  Across four events
+this lowers the Fe\,\textsc{i} local velocity by a further 1.9 to 3.9\,per\,cent, at
+a cost of 1.5 to 3.1\,per\,cent of the power between 20 and 50\,px, and every wave
+vector removed stands at least fifteen times above the noise floor.  The values
+live in \code{STRIPE\_PROFILES} and any of them can be overridden per call.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{figs/fe_second_pass_harder.png}
+\caption{Fe\,\textsc{i} with the harder setting.  Left, $V_{\mathrm{local}}$
+after one pass; centre, what the second pass removes; right, the final map.  On
+2026-10-30 the removed term is a coherent family of parallel fringes; on
+2025-11-11 it is weaker, and the pass removes correspondingly less.}
+\label{fig:fe-second-pass}
 \end{figure}
 
 

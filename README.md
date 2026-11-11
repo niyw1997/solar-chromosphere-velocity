@@ -3,7 +3,7 @@
 Line-of-sight velocity maps from CHASE/HIS chromospheric spectra.  The large-scale
 flow is modelled, split into its physical terms, and removed.
 
-Version 2.5.0.  History in [`CHANGELOG.md`](CHANGELOG.md); the method is derived in
+Version 2.5.1.  History in [`CHANGELOG.md`](CHANGELOG.md); the method is derived in
 full in the manual.
 
 * **[`docs/manual.pdf`](docs/manual.pdf)**, the full derivation: program flow,
@@ -422,6 +422,18 @@ nothing below forty is accepted.  Across four events the pass lowers the local
 velocity by up to 2.2 per cent and leaves a cube untouched where one pass
 sufficed.  `--no-local-second-pass` turns it off, `--local-second-pass-contrast`
 moves the gate.
+
+**A harder setting for Fe I.**  Fe I forms lower in the atmosphere, so its active
+regions cover a smaller area and the protection footprint can be shallower.  For
+Fe I this code therefore uses a wider notch, a third wave vector, a narrower
+protection footprint and a second pass that iterates while the fringe remains.  A
+strong fringe takes more rounds than a weak one, which is the sense in which the
+removal follows the fringe rather than a fixed setting.  Across four events this
+lowers the Fe I local velocity by a further 1.9 to 3.9 per cent, at a cost of 1.5
+to 3.1 per cent of the 20 to 50 px power, and every wave vector removed stands at
+least fifteen times above the noise floor.  The settings are in
+`scan_correction.STRIPE_PROFILES`; `--stripe-band-width`, `--stripe-topn`,
+`--protect-sigma` and `--protect-smooth` override them per call.
 
 **Active-region protection.** The flat field must not erase real blobs, so the
 template is multiplied by a smooth weight
