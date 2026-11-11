@@ -65,6 +65,17 @@ DEFAULT_PROTECTION = (95.0, 99.5, 1.0)
 
 
 @dataclass
+class LocalSecondPass:
+    """What a second fringe pass removed from an already corrected map."""
+
+    flat: np.ndarray                       # the extra term that was removed
+    local: np.ndarray                      # the map after that removal
+    stripe_peaks: Tuple[Tuple[float, float], ...]
+    n_detected: int
+    contrast: Dict[Tuple[float, float], float]
+
+
+@dataclass
 class ScanCorrection:
     """The correction surfaces plus what was actually fitted."""
 
@@ -279,7 +290,9 @@ def detect_stripe_peaks(velocity, *, lambda_min: float = 30.0,
                         lambda_max: float = 1500.0, topn: int = 2,
                         min_contrast: float = 8.0,
                         max_peaks: int = 12, prepared=None,
-                        angle_tolerance: float = 10.0
+                        angle_tolerance: float = 10.0,
+                        angle_center: Optional[float] = None,
+                        contrast_out: Optional[Dict] = None
                         ) -> Tuple[Tuple[float, float], ...]:
     """Find the strongest parallel-stripe wave vectors in a velocity map.
 
@@ -289,8 +302,14 @@ def detect_stripe_peaks(velocity, *, lambda_min: float = 30.0,
     the median power in that annulus are kept.  The ``topn`` strongest are
     returned as ``(lambda_px, angle_deg)``.
 
-    The interval 25-150 px is the detector-scale stripe range: shorter than any
-    large-scale flow pattern, longer than pixel-to-pixel noise.
+    The 30-1500 px interval covers the fringes this instrument produces, which
+    are periodic, parallel and image-wide.
+
+    ``angle_center`` additionally restricts the search to wave vectors within
+    ``angle_tolerance`` of that orientation, and measures the contrast against
+    the median power inside that restricted band.  A second pass uses it to look
+    for what a first pass left along the known fringe direction, where a free
+    search would also fire on the peaks of a pure noise field.
     """
     d = np.asarray(velocity, dtype=np.float64)
     ny, nx = d.shape
@@ -309,6 +328,11 @@ def detect_stripe_peaks(velocity, *, lambda_min: float = 30.0,
     with np.errstate(divide="ignore"):
         lam = np.where(K > 0, 1.0 / np.maximum(K, 1e-12), np.inf)
     band = (lam >= lambda_min) & (lam <= lambda_max)
+    if angle_center is not None:
+        ang = np.degrees(np.arctan2(KY, KX))
+        ang = (ang + 90.0) % 180.0 - 90.0
+        off = np.abs(((ang - float(angle_center) + 90.0) % 180.0) - 90.0)
+        band = band & (off <= float(angle_tolerance))
     if not band.any():
         return ()
     local_max = (P == maximum_filter(P, size=9)) & band
@@ -343,6 +367,8 @@ def detect_stripe_peaks(velocity, *, lambda_min: float = 30.0,
             continue
         seen.add(key)
         peaks.append((lam0, angle))
+        if contrast_out is not None:
+            contrast_out[(lam0, angle)] = float(powers[i] / max(median, 1e-30))
     return tuple(peaks)
 
 
@@ -531,3 +557,70 @@ def scan_correction_two_arm(velocity, header, *, strong=None, weak=None,
         coeffs=hi.coeffs, stripe_peaks=hi.stripe_peaks,
         second_pass_ratios=hi.second_pass_ratios, protect_weight=wprot,
         n_detected=hi.n_detected, mode="%s+%s" % (hi.mode, mode))
+
+
+def second_pass_local(local, header, *, protect=None, spec_line: str = "",
+                      lambda_min: float = 30.0, lambda_max: float = 1500.0,
+                      topn: int = 2, angle_center=None,
+                      angle_tolerance: float = 8.0,
+                      min_contrast: float = 40.0, band_width: float = 0.20,
+                      protect_sigma: float = 8.0, protect_smooth: float = 12.0,
+                      exclude: Iterable[Sequence[float]] = ()
+                      ) -> LocalSecondPass:
+    """Remove what a first fringe pass left, working on the corrected map.
+
+    A first pass removes the fringes it can characterise; what remains along the
+    same orientation is sometimes still visible.  This second pass looks for it
+    on the already corrected map, with two safeguards that a free search cannot
+    offer.
+
+    ``angle_center`` locks the search to the fringe direction found by the first
+    pass, and ``min_contrast`` is raised well above the first-pass value.  On a
+    map that has already been corrected the power is close to noise, and a free
+    search fires on noise peaks at nine to sixteen times the annulus median; a
+    genuine residual fringe in the 2026-11-04 data sits above one hundred.
+    ``exclude`` drops wave vectors already removed, so nothing is subtracted
+    twice.
+    """
+    d = np.asarray(local, dtype=np.float64)
+    finite = np.isfinite(d)
+    empty = LocalSecondPass(np.zeros_like(d), d, (), 0, {})
+    if finite.sum() < 4 * 64:
+        return empty
+
+    prepared = _prepared(d)
+    measured: Dict = {}
+    peaks = detect_stripe_peaks(d, lambda_min=lambda_min, lambda_max=lambda_max,
+                                topn=max(int(topn), 1) + len(tuple(exclude)),
+                                min_contrast=min_contrast, prepared=prepared,
+                                angle_tolerance=angle_tolerance,
+                                angle_center=angle_center,
+                                contrast_out=measured)
+    if not peaks:
+        return empty
+
+    kept, contrasts = [], {}
+    for lam, ang in peaks:
+        clash = any(abs(lam / float(el) - 1.0) < 0.05
+                    and abs(((ang - float(ea) + 90.0) % 180.0) - 90.0) < 3.0
+                    for el, ea in exclude)
+        if clash:
+            continue
+        kept.append((float(lam), float(ang)))
+        if len(kept) >= int(topn):
+            break
+    if not kept:
+        return empty
+
+    for lam, ang in kept:
+        contrasts[(lam, ang)] = float(measured.get((lam, ang), np.nan))
+
+    bands = stripe_bands(d, kept, band_width, prepared=prepared)
+    lo, hi, strength = (tuple(protect) if protect is not None
+                        else PROTECTION_PRESETS.get(str(spec_line).upper(),
+                                                    DEFAULT_PROTECTION))
+    wprot = protect_weight(d, lo, hi, strength, protect_sigma, protect_smooth)
+    flat = wprot * bands
+    out = np.where(finite, d - flat, np.nan)
+    return LocalSecondPass(flat=flat, local=out, stripe_peaks=tuple(kept),
+                           n_detected=len(kept), contrast=contrasts)

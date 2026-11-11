@@ -35,7 +35,7 @@
        \large Method and Implementation Manual\\[1mm]
        \normalsize Program flow, streaming framework, spectral fitting and
        the velocity model}
-\author{\code{solar-chromosphere-velocity} v2.4}
+\author{\code{solar-chromosphere-velocity} v2.5}
 \date{\today}
 
 \begin{document}
@@ -612,6 +612,19 @@ residual wave vector the after/before stripe RMS ratio is
 \end{equation}
 and $R > 0.4$ triggers a localised second subtraction weighted by the local
 stripe amplitude, so quiet areas are not over-subtracted.
+
+\paragraph{Second pass, on the corrected map.}  A single pass leaves a residual
+along the same orientation in some cubes, most visibly in Fe\,\textsc{i}.  A
+second pass therefore searches $V_{\mathrm{local}}$ itself, with two restrictions
+a free search cannot offer.  The direction is locked to the one the first pass
+found, and the contrast gate is raised to forty times the annulus median.  On the
+2026-11-04 cubes this recovers 408\,px at $-45^\circ$ for H$\alpha$ and
+295\,px at $-40^\circ$ for Fe\,\textsc{i}, at contrasts of 148 and 296; both are
+wave vectors that had previously been selected by hand.  The gate matters because
+an already corrected map is close to noise, and a free search there fires at nine
+to sixteen times the median, so nothing under forty is accepted.  Across four
+events the pass lowers the local velocity by up to 2.2\,per\,cent, and leaves a
+cube alone where one pass already sufficed.
 
 \paragraph{Active-region protection.}  Real structures must not be erased by the
 flat field, so the template is multiplied by a smooth weight

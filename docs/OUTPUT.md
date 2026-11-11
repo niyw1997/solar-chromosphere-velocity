@@ -117,6 +117,7 @@ The removal is recorded in `PRIMARY`:
 | `SCQUADF` | the six quadratic coefficients `c0..c5` |
 | `SCWMIN` | minimum of the active-region protection weight |
 | `RESSTD`, `SCSTD`, `LOCSTD` | std of the level-1 residual, of V_SS, and of V_LOCAL |
+| `SC2N`, `SC2PEAK`, `SC2CONT`, `SC2STD` | the second pass: how many wave vectors it removed, which ones, their contrast, and the std of the term |
 
 `--no-scan-correction` disables the whole step; `--no-scan-saddle` and
 `--no-stripe-removal` disable one term each.

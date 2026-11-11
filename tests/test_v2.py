@@ -184,10 +184,10 @@ def test_residual_is_zero_mean_on_quiet_sun(tmp_path):
 
 @requires_vdop
 def test_vlocal_is_vresid_minus_vss(tmp_path):
-    """V_LOCAL = V_RESID - V_SS, exactly, with the intermediates written."""
+    """With one pass, V_LOCAL = V_RESID - V_SS, exactly."""
     cfg = Config(input_dir=os.path.dirname(VDOP), output_dir=str(tmp_path),
                  legacy=False, write_vresid=True, write_scan_terms=True,
-                 log_level="ERROR")
+                 local_second_pass=False, log_level="ERROR")
     L = ChromosphereProcessor(cfg).process_file(VDOP).layers
     assert set(L) >= {"V_LOCAL", "V_RESID", "V_SCAN_SADDLE", "V_FLAT", "V_SS"}
     ss = L["V_SCAN_SADDLE"].astype(np.float64) + L["V_FLAT"].astype(np.float64)
@@ -196,6 +196,40 @@ def test_vlocal_is_vresid_minus_vss(tmp_path):
     diff = L["V_RESID"].astype(np.float64) - ss
     ok = np.isfinite(diff) & np.isfinite(L["V_LOCAL"])
     assert ok.any() and np.allclose(diff[ok], L["V_LOCAL"][ok], atol=1e-6)
+
+
+def test_second_pass_only_acts_on_a_real_fringe(tmp_path):
+    """The second pass removes less than the first, and only when a fringe is there."""
+    from solar_chromosphere_velocity.scan_correction import second_pass_local
+
+    one = Config(input_dir=os.path.dirname(VDOP), output_dir=str(tmp_path / "a"),
+                 legacy=False, write_scan_terms=True,
+                 local_second_pass=False, log_level="ERROR")
+    res1 = ChromosphereProcessor(one).process_file(VDOP)
+
+    two = Config(input_dir=os.path.dirname(VDOP), output_dir=str(tmp_path / "b"),
+                 legacy=False, write_scan_terms=True,
+                 local_second_pass=True, log_level="ERROR")
+    res2 = ChromosphereProcessor(two).process_file(VDOP)
+
+    first = float(np.nanstd(res1.layers["V_SS"]))
+    a = float(np.nanstd(res1.layers["V_LOCAL"]))
+    b = float(np.nanstd(res2.layers["V_LOCAL"]))
+    assert b <= a * (1 + 1e-9)                    # never adds variance
+    # whatever the second pass did, it did less than the first
+    delta = np.nanstd(res1.layers["V_LOCAL"].astype(float)
+                      - res2.layers["V_LOCAL"].astype(float))
+    assert delta < first
+
+
+def test_second_pass_rejects_noise():
+    """A pure noise field must not trigger the second pass."""
+    from solar_chromosphere_velocity.scan_correction import second_pass_local
+    rng = np.random.default_rng(11)
+    noise = rng.normal(0.0, 0.25, (256, 256))
+    for angle in (-45.0, None):
+        r = second_pass_local(noise, {}, angle_center=angle, min_contrast=40.0)
+        assert r.n_detected == 0, (angle, r.stripe_peaks)
 
 
 @requires_vdop

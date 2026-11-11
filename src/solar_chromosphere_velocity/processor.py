@@ -28,7 +28,7 @@ from .data_loader import (DataType, SpectralCube, detect_data_type,
                           extract_solar_params, open_plane)
 from .geometry import coord_arrays, solar_coords
 from .inversion import DopplerInverter, DopplerResult
-from .scan_correction import scan_correction
+from .scan_correction import scan_correction, second_pass_local
 from .masks import (active_region_mask, apply_disk_exclusion, disk_mask,
                     effective_disk_mask, effective_radius_px)
 from .models import ModelFit, VelocityModel, fit_model_streaming
@@ -266,8 +266,26 @@ class ChromosphereProcessor:
                 spec_line=params.spec_line)
         timings["reconstruct"] = time.perf_counter() - t0
 
+        # ---- second pass, on the corrected map ------------------------------
+        second = None
+        if corr is not None and cfg.local_second_pass:
+            angle0 = float(corr.stripe_peaks[0][1]) if corr.stripe_peaks else None
+            second = second_pass_local(
+                corr.local,
+                {"CX": params.cx, "CY": params.cy, "R_SUN": params.radius},
+                spec_line=params.spec_line, angle_center=angle0,
+                min_contrast=cfg.local_second_pass_contrast,
+                topn=cfg.local_second_pass_topn,
+                exclude=corr.stripe_peaks)
+        if second is not None and second.n_detected:
+            local_f = second.local.astype(np.float32)
+        elif corr is not None:
+            local_f = corr.local.astype(np.float32)
+        else:
+            local_f = resid
+
         # layers
-        local = corr.local.astype(np.float32) if corr is not None else resid
+        local = local_f
         layers = {
             "VLOS_OBS": vlos.astype(np.float32),
             "VLOS_CORR": vcorr,
@@ -312,6 +330,17 @@ class ChromosphereProcessor:
                                     "std of the level-1 residual (km/s)")
             base_cards["SCWMIN"] = (float(np.nanmin(corr.protect_weight)),
                                     "min active-region protection weight")
+            if second is not None and second.n_detected:
+                base_cards["SC2N"] = (int(second.n_detected),
+                                      "fringe vectors removed by the second pass")
+                base_cards["SC2PEAK"] = (
+                    ",".join("%.2f:%.1f" % (l, a) for l, a in second.stripe_peaks),
+                    "second-pass wave vectors (lambda_px:angle_deg)")
+                base_cards["SC2CONT"] = (
+                    ",".join("%.0f" % v for v in second.contrast.values()),
+                    "their contrast over the annulus median")
+                base_cards["SC2STD"] = (float(np.nanstd(second.flat)),
+                                        "std of the second-pass term (km/s)")
             base_cards["SCQUADF"] = (
                 ",".join("%.4g" % c for c in corr.coeffs),
                 "quadratic coefficients c0..c5 of V_SCAN_SADDLE")

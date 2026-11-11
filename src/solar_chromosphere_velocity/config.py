@@ -99,6 +99,13 @@ class Config:
     stripe_second_pass: bool = False       # opt-in; can over-subtract
     stripe_second_ratio: float = 0.4
     stripe_second_peaks: Tuple[Tuple[float, float], ...] = ()
+    # second pass on the corrected map: what a first pass leaves along the same
+    # fringe direction is sometimes still visible, so look again with the search
+    # locked to that direction and a contrast gate well above the noise
+    local_second_pass: bool = True
+    local_second_pass_contrast: float = 40.0
+    local_second_pass_topn: int = 2
+
     # active-region protection: smooth, and spread over a larger footprint
     protect_sigma: float = 8.0             # smooth the velocity before thresholding
     protect_smooth: float = 12.0           # dilate the protected area, px

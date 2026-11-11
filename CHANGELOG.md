@@ -1,5 +1,40 @@
 # Changelog
 
+## 2.5.0
+
+### Added
+
+- **A second fringe pass, on the corrected map.**  One pass leaves a residual
+  along the same orientation in some cubes, most visibly in Fe I.  The second
+  pass searches `V_LOCAL` itself, with two restrictions that a free search cannot
+  offer: the direction is locked to the one the first pass found, and the contrast
+  gate is raised to forty times the annulus median, where the first pass accepts
+  eight.  The gate is what makes it safe.  On an already corrected map the power is
+  close to noise, and a free search fires at nine to sixteen times the median on a
+  pure Gaussian field, so nothing under forty is accepted.
+
+  On 2026-11-04 this recovers 408 px at -45 degrees in H-alpha and 295 px at -40
+  degrees in Fe I, at contrasts of 148 and 296, both of which are wave vectors an
+  analyst had previously chosen by hand.  Across four events the pass lowers the
+  local velocity by 0 to 2.2 per cent, and does nothing where one pass already
+  sufficed:
+
+  | event | line | V_LOCAL before | after | reduction |
+  |---|---|---|---|---|
+  | 2025-11-11 | H-alpha | 0.7754 | 0.7754 | 0.00 % |
+  | 2025-11-11 | Fe I | 0.2415 | 0.2410 | 0.24 % |
+  | 2026-10-10 | H-alpha | 0.7941 | 0.7933 | 0.10 % |
+  | 2026-10-10 | Fe I | 0.2419 | 0.2412 | 0.27 % |
+  | 2026-10-31 | H-alpha | 0.6006 | 0.5992 | 0.23 % |
+  | 2026-10-31 | Fe I | 0.2048 | 0.2002 | 2.24 % |
+  | 2026-11-04 | H-alpha | 0.7042 | 0.7026 | 0.22 % |
+  | 2026-11-04 | Fe I | 0.2209 | 0.2198 | 0.48 % |
+
+- The pass is on by default.  `--no-local-second-pass` turns it off and
+  `--local-second-pass-contrast` moves the gate.  `PRIMARY` records `SC2N`,
+  `SC2PEAK`, `SC2CONT` and `SC2STD`, so the second pass is as auditable as the
+  first.
+
 ## 2.4.0
 
 ### Changed

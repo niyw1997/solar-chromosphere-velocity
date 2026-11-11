@@ -410,6 +410,19 @@ image-wide.  `--stripe-peaks 47.4:108` pins them instead.  An optional second pa
 (`--stripe-second-pass`) removes what survives, triggered by the after/before
 stripe RMS ratio above 0.4.
 
+**A second pass, on the corrected map.**  What one pass leaves along the same
+direction is sometimes still visible, most clearly in Fe I.  This code looks
+again, on `V_LOCAL` itself, with the search locked to the orientation the first
+pass found and the contrast gate raised to forty times the annulus median.  On
+the 2026-11-04 cubes that finds 408 px at -45 degrees in H-alpha and 295 px at
+-40 degrees in Fe I, at contrasts of 148 and 296, both of which are the wave
+vectors an analyst had been choosing by hand.  The gate is what keeps it honest:
+a free search on an already corrected map fires at nine to sixteen times the
+median on pure noise, so nothing below forty is accepted.  Over four events the
+second pass reduces the local velocity by 0 to 2.2 per cent, and does nothing at
+all where the first pass already sufficed.  `--no-local-second-pass` turns it off,
+`--local-second-pass-contrast` moves the gate.
+
 **Active-region protection.** The flat field must not erase real blobs, so the
 template is multiplied by a smooth weight
 

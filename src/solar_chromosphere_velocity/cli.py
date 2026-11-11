@@ -101,6 +101,11 @@ def build_parser(prog: str = "scv", legacy_default: bool = False):
                           "larger removes a broader band")
     scn.add_argument("--stripe-strength", type=float, default=1.0,
                      help="multiplier on the flat-field template")
+    scn.add_argument("--no-local-second-pass", action="store_true",
+                     help="do not look again for fringes on the corrected map")
+    scn.add_argument("--local-second-pass-contrast", type=float, default=40.0,
+                     help="contrast gate for the second pass, in multiples of "
+                          "the annulus median (noise sits below about 16)")
     scn.add_argument("--stripe-second-pass", action="store_true",
                      help="re-detect and remove the stripes that survive the "
                           "first pass (off by default: it can over-subtract)")
@@ -250,6 +255,8 @@ def config_from_args(args) -> Config:
         stripe_band_width=args.stripe_band_width,
         stripe_strength=args.stripe_strength,
         stripe_second_pass=bool(args.stripe_second_pass),
+        local_second_pass=not args.no_local_second_pass,
+        local_second_pass_contrast=args.local_second_pass_contrast,
         protect_sigma=args.protect_sigma,
         protect_smooth=args.protect_smooth,
         write_vresid=args.write_vresid,
