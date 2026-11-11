@@ -3,7 +3,7 @@
 Line-of-sight velocity maps from CHASE/HIS chromospheric spectra.  The large-scale
 flow is modelled, split into its physical terms, and removed.
 
-Version 2.4.0.  History in [`CHANGELOG.md`](CHANGELOG.md); the method is derived in
+Version 2.5.0.  History in [`CHANGELOG.md`](CHANGELOG.md); the method is derived in
 full in the manual.
 
 * **[`docs/manual.pdf`](docs/manual.pdf)**, the full derivation: program flow,
@@ -411,17 +411,17 @@ image-wide.  `--stripe-peaks 47.4:108` pins them instead.  An optional second pa
 stripe RMS ratio above 0.4.
 
 **A second pass, on the corrected map.**  What one pass leaves along the same
-direction is sometimes still visible, most clearly in Fe I.  This code looks
-again, on `V_LOCAL` itself, with the search locked to the orientation the first
-pass found and the contrast gate raised to forty times the annulus median.  On
-the 2026-11-04 cubes that finds 408 px at -45 degrees in H-alpha and 295 px at
--40 degrees in Fe I, at contrasts of 148 and 296, both of which are the wave
-vectors an analyst had been choosing by hand.  The gate is what keeps it honest:
-a free search on an already corrected map fires at nine to sixteen times the
-median on pure noise, so nothing below forty is accepted.  Over four events the
-second pass reduces the local velocity by 0 to 2.2 per cent, and does nothing at
-all where the first pass already sufficed.  `--no-local-second-pass` turns it off,
-`--local-second-pass-contrast` moves the gate.
+orientation is sometimes still visible, most clearly in Fe I.  This code searches
+`V_LOCAL` itself, with the direction locked to the one the first pass found and
+the contrast gate raised to forty times the annulus median.  On the 2026-11-04
+cubes that recovers 408 px at -45 degrees in H-alpha and 295 px at -40 degrees in
+Fe I, at contrasts of 148 and 296; both are wave vectors that had been selected by
+hand.  The gate is what makes it safe.  An already corrected map is close to
+noise, and a free search there fires at nine to sixteen times the median, so
+nothing below forty is accepted.  Across four events the pass lowers the local
+velocity by up to 2.2 per cent and leaves a cube untouched where one pass
+sufficed.  `--no-local-second-pass` turns it off, `--local-second-pass-contrast`
+moves the gate.
 
 **Active-region protection.** The flat field must not erase real blobs, so the
 template is multiplied by a smooth weight

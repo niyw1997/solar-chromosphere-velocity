@@ -21,7 +21,7 @@
 
 | HDU | EXTNAME | content | unit |
 |---|---|---|---|
-| 0 | `PRIMARY` | no data: observation metadata + fitted parameters | — |
+| 0 | `PRIMARY` | no data: observation metadata + fitted parameters | none |
 | 1 | `VLOS_OBS` | observed line-of-sight velocity | km/s |
 | 2 | `VLOS_CORR` | `VLOS_OBS - zero_point` | km/s |
 | 3 | `V_DIFFROT` | differential-rotation component | km/s |
@@ -31,7 +31,7 @@
 | 7 | `V_LARGE` | `V_DIFFROT + V_LIMB + V_MERID + V_OFFSET` | km/s |
 | 8 | `V_LOCAL` | `V_RESID - V_SS`, the local velocity (science product) | km/s |
 | 9 | `V_MODEL_ERR` | 1-sigma uncertainty of the model surface | km/s |
-| 10 | `MASK_ACTIVE` | 0 = quiet Sun, 1 = active region | — |
+| 10 | `MASK_ACTIVE` | 0 = quiet Sun, 1 = active region | none |
 | 11 | `FITPARAMS` | 9 parameters + errors + a `FLAG` column | mixed |
 
 **Level-0.5 intermediates**, written only when asked for

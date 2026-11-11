@@ -15,8 +15,8 @@ instrument.
 ## The decomposition
 
 The measured displacement gives the observed line-of-sight velocity `VLOS_OBS`.
-Over the disk it is described as the sum of four terms that the Sun's geometry and
-large-scale kinematics impose, plus a local remainder,
+Over the disk it is the sum of four terms imposed by the Sun's geometry and
+large-scale kinematics, plus a local remainder,
 
 ```
 VLOS_OBS = V_DIFFROT + V_LIMB + V_MERID + V_OFFSET + V_RESID
